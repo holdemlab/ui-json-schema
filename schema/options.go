@@ -17,6 +17,10 @@ type Options struct {
 	RolePermissions map[string]FieldPermissions
 	// Role is the active role to apply permissions for.
 	Role string
+	// OmitEmpty excludes fields marked with `json:",omitempty"` from the
+	// generated schema when the corresponding value is the zero value for
+	// its type. When false (default), omitempty fields are always included.
+	OmitEmpty bool
 }
 
 // FieldPermissions maps field JSON names to access levels.

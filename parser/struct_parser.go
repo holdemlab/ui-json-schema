@@ -23,8 +23,11 @@ func GenerateJSONSchema(v any) (*schema.JSONSchema, error) {
 // GenerateJSONSchemaWithOptions generates a JSON Schema using the supplied options.
 func GenerateJSONSchemaWithOptions(v any, opts schema.Options) (*schema.JSONSchema, error) {
 	t := reflect.TypeOf(v)
+	val := reflect.ValueOf(v)
+
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
+		val = val.Elem()
 	}
 
 	root := &schema.JSONSchema{
@@ -34,14 +37,14 @@ func GenerateJSONSchemaWithOptions(v any, opts schema.Options) (*schema.JSONSche
 	root.Properties = make(map[string]*schema.JSONSchema)
 
 	if t.Kind() == reflect.Struct {
-		parseStructFields(t, root)
+		parseStructFields(t, val, root, &opts)
 	}
 
 	return root, nil
 }
 
 // parseStructFields iterates over struct fields and populates the schema properties.
-func parseStructFields(t reflect.Type, s *schema.JSONSchema) {
+func parseStructFields(t reflect.Type, val reflect.Value, s *schema.JSONSchema, opts *schema.Options) {
 	for i := range t.NumField() {
 		field := t.Field(i)
 
@@ -55,7 +58,20 @@ func parseStructFields(t reflect.Type, s *schema.JSONSchema) {
 			continue
 		}
 
-		prop := typeToSchema(field.Type)
+		// When OmitEmpty is enabled, skip fields tagged with omitempty
+		// whose value is the zero value for their type.
+		if opts != nil && opts.OmitEmpty && fieldHasOmitempty(field) {
+			if val.IsValid() && isZeroValue(val.Field(i)) {
+				continue
+			}
+		}
+
+		var fieldVal reflect.Value
+		if val.IsValid() {
+			fieldVal = val.Field(i)
+		}
+
+		prop := typeToSchema(field.Type, fieldVal, opts)
 
 		// Apply struct tags to the property.
 		tags := schema.ParseFieldTags(field)
@@ -85,6 +101,37 @@ func applyTags(prop *schema.JSONSchema, tags schema.FieldTags) {
 	}
 }
 
+// fieldHasOmitempty checks whether the field's json tag contains "omitempty".
+func fieldHasOmitempty(field reflect.StructField) bool {
+	tag := field.Tag.Get("json")
+	_, opts, _ := strings.Cut(tag, ",")
+
+	for opts != "" {
+		var name string
+		name, opts, _ = strings.Cut(opts, ",")
+
+		if name == "omitempty" {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isZeroValue reports whether v is the zero value for its type.
+func isZeroValue(v reflect.Value) bool {
+	if !v.IsValid() {
+		return true
+	}
+
+	switch v.Kind() { //nolint:exhaustive // covers JSON-representable types
+	case reflect.Ptr, reflect.Interface, reflect.Slice, reflect.Map:
+		return v.IsNil()
+	default:
+		return v.IsZero()
+	}
+}
+
 // fieldJSONName returns the JSON field name from the json struct tag.
 // Falls back to the Go field name if no tag is present.
 func fieldJSONName(field reflect.StructField) string {
@@ -102,10 +149,16 @@ func fieldJSONName(field reflect.StructField) string {
 }
 
 // typeToSchema converts a reflect.Type to a JSONSchema property.
-func typeToSchema(t reflect.Type) *schema.JSONSchema {
+func typeToSchema(t reflect.Type, val reflect.Value, opts *schema.Options) *schema.JSONSchema {
 	// Unwrap pointer types.
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
+
+		if val.IsValid() && !val.IsNil() {
+			val = val.Elem()
+		} else {
+			val = reflect.Value{}
+		}
 	}
 
 	// Handle time.Time as a special case.
@@ -133,7 +186,7 @@ func typeToSchema(t reflect.Type) *schema.JSONSchema {
 		return &schema.JSONSchema{Type: "number"}
 
 	case reflect.Slice, reflect.Array:
-		items := typeToSchema(t.Elem())
+		items := typeToSchema(t.Elem(), reflect.Value{}, opts)
 		return &schema.JSONSchema{
 			Type:  "array",
 			Items: items,
@@ -144,7 +197,7 @@ func typeToSchema(t reflect.Type) *schema.JSONSchema {
 			return &schema.JSONSchema{Type: "object"}
 		}
 
-		additional := typeToSchema(t.Elem())
+		additional := typeToSchema(t.Elem(), reflect.Value{}, opts)
 		return &schema.JSONSchema{
 			Type:                 "object",
 			AdditionalProperties: additional,
@@ -155,7 +208,7 @@ func typeToSchema(t reflect.Type) *schema.JSONSchema {
 			Type:       "object",
 			Properties: make(map[string]*schema.JSONSchema),
 		}
-		parseStructFields(t, obj)
+		parseStructFields(t, val, obj, opts)
 		return obj
 
 	default:
@@ -172,14 +225,17 @@ func GenerateUISchema(v any) (*schema.UISchemaElement, error) {
 // GenerateUISchemaWithOptions generates a JSON Forms UI Schema using the supplied options.
 func GenerateUISchemaWithOptions(v any, opts schema.Options) (*schema.UISchemaElement, error) {
 	t := reflect.TypeOf(v)
+	val := reflect.ValueOf(v)
+
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
+		val = val.Elem()
 	}
 
 	root := schema.NewVerticalLayout()
 
 	if t.Kind() == reflect.Struct {
-		buildUIElements(t, "#/properties", root, &opts)
+		buildUIElements(t, val, "#/properties", root, &opts)
 	}
 
 	// If any fields have categories, wrap elements into a Categorization.
@@ -191,7 +247,7 @@ func GenerateUISchemaWithOptions(v any, opts schema.Options) (*schema.UISchemaEl
 }
 
 // buildUIElements iterates over struct fields and builds UI Schema elements.
-func buildUIElements(t reflect.Type, basePath string, parent *schema.UISchemaElement, opts *schema.Options) {
+func buildUIElements(t reflect.Type, val reflect.Value, basePath string, parent *schema.UISchemaElement, opts *schema.Options) {
 	for i := range t.NumField() {
 		field := t.Field(i)
 
@@ -202,6 +258,14 @@ func buildUIElements(t reflect.Type, basePath string, parent *schema.UISchemaEle
 		name := fieldJSONName(field)
 		if name == "-" {
 			continue
+		}
+
+		// When OmitEmpty is enabled, skip fields tagged with omitempty
+		// whose value is the zero value for their type.
+		if opts != nil && opts.OmitEmpty && fieldHasOmitempty(field) {
+			if val.IsValid() && isZeroValue(val.Field(i)) {
+				continue
+			}
 		}
 
 		tags := schema.ParseFieldTags(field)
@@ -227,7 +291,13 @@ func buildUIElements(t reflect.Type, basePath string, parent *schema.UISchemaEle
 			label = translateLabel(label, tags.I18nKey, opts)
 
 			group := schema.NewGroup(label)
-			buildUIElements(fieldType, scope+"/properties", group, opts)
+
+			var nestedVal reflect.Value
+			if val.IsValid() {
+				nestedVal = val.Field(i)
+			}
+
+			buildUIElements(fieldType, nestedVal, scope+"/properties", group, opts)
 			parent.Elements = append(parent.Elements, group)
 
 			continue
