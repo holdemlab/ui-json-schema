@@ -699,3 +699,146 @@ func TestCategorization_JSON(t *testing.T) {
 		t.Errorf("expected Category type, got %v", cat1["type"])
 	}
 }
+
+// --- OmitEmpty ---
+
+type OmitEmptyStruct struct {
+	Name  string   `json:"name"`
+	Notes string   `json:"notes,omitempty"`
+	Score int      `json:"score,omitempty"`
+	Tags  []string `json:"tags,omitempty"`
+}
+
+type OmitEmptyNested struct {
+	Title   string `json:"title"`
+	Address struct {
+		City   string `json:"city"`
+		Region string `json:"region,omitempty"`
+	} `json:"address"`
+}
+
+func TestGenerateJSONSchemaWithOptions_OmitEmpty_ZeroValues(t *testing.T) {
+	opts := schema.Options{
+		Draft:     "draft-07",
+		OmitEmpty: true,
+	}
+
+	// All omitempty fields have zero values → should be excluded.
+	s, err := parser.GenerateJSONSchemaWithOptions(OmitEmptyStruct{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if _, ok := s.Properties["name"]; !ok {
+		t.Error("expected property 'name' (no omitempty)")
+	}
+
+	if _, ok := s.Properties["notes"]; ok {
+		t.Error("'notes' should be excluded (omitempty + zero value)")
+	}
+
+	if _, ok := s.Properties["score"]; ok {
+		t.Error("'score' should be excluded (omitempty + zero value)")
+	}
+
+	if _, ok := s.Properties["tags"]; ok {
+		t.Error("'tags' should be excluded (omitempty + nil slice)")
+	}
+}
+
+func TestGenerateJSONSchemaWithOptions_OmitEmpty_NonZeroValues(t *testing.T) {
+	opts := schema.Options{
+		Draft:     "draft-07",
+		OmitEmpty: true,
+	}
+
+	// omitempty fields have non-zero values → should be included.
+	v := OmitEmptyStruct{
+		Name:  "Alice",
+		Notes: "some note",
+		Score: 42,
+		Tags:  []string{"go"},
+	}
+
+	s, err := parser.GenerateJSONSchemaWithOptions(v, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, key := range []string{"name", "notes", "score", "tags"} {
+		if _, ok := s.Properties[key]; !ok {
+			t.Errorf("expected property %q (non-zero value)", key)
+		}
+	}
+}
+
+func TestGenerateJSONSchemaWithOptions_OmitEmpty_Disabled(t *testing.T) {
+	opts := schema.Options{
+		Draft:     "draft-07",
+		OmitEmpty: false,
+	}
+
+	// OmitEmpty is off → all fields appear even with zero values.
+	s, err := parser.GenerateJSONSchemaWithOptions(OmitEmptyStruct{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, key := range []string{"name", "notes", "score", "tags"} {
+		if _, ok := s.Properties[key]; !ok {
+			t.Errorf("expected property %q (OmitEmpty disabled)", key)
+		}
+	}
+}
+
+func TestGenerateUISchemaWithOptions_OmitEmpty(t *testing.T) {
+	opts := schema.Options{
+		Draft:     "draft-07",
+		OmitEmpty: true,
+	}
+
+	ui, err := parser.GenerateUISchemaWithOptions(OmitEmptyStruct{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only "name" should remain (the others are omitempty + zero value).
+	if len(ui.Elements) != 1 {
+		t.Fatalf("expected 1 element, got %d", len(ui.Elements))
+	}
+
+	if ui.Elements[0].Scope != "#/properties/name" {
+		t.Errorf("expected scope '#/properties/name', got %q", ui.Elements[0].Scope)
+	}
+}
+
+func TestGenerateJSONSchemaWithOptions_OmitEmpty_Nested(t *testing.T) {
+	opts := schema.Options{
+		Draft:     "draft-07",
+		OmitEmpty: true,
+	}
+
+	s, err := parser.GenerateJSONSchemaWithOptions(OmitEmptyNested{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// "title" should exist, "address" should exist (not omitempty).
+	if _, ok := s.Properties["title"]; !ok {
+		t.Error("expected property 'title'")
+	}
+
+	addr, ok := s.Properties["address"]
+	if !ok {
+		t.Fatal("expected property 'address'")
+	}
+
+	// Inside address: "city" should exist, "region" (omitempty+zero) should be excluded.
+	if _, ok := addr.Properties["city"]; !ok {
+		t.Error("expected nested property 'city'")
+	}
+
+	if _, ok := addr.Properties["region"]; ok {
+		t.Error("'region' should be excluded (omitempty + zero value in nested struct)")
+	}
+}
