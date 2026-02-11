@@ -132,6 +132,78 @@ func isZeroValue(v reflect.Value) bool {
 	}
 }
 
+// mergeSliceValues builds a representative struct value for a slice of structs.
+// A field in the result is non-zero when at least one element in the slice has a
+// non-zero value for that field. This allows OmitEmpty to correctly filter out
+// fields that are zero across every element.
+func mergeSliceValues(sliceType reflect.Type, sliceVal reflect.Value, opts *schema.Options) reflect.Value {
+	if opts == nil || !opts.OmitEmpty {
+		return reflect.Value{}
+	}
+
+	if !sliceVal.IsValid() || sliceVal.Len() == 0 {
+		return reflect.Value{}
+	}
+
+	elemType := sliceType.Elem()
+
+	// Unwrap pointer element type.
+	isPtr := elemType.Kind() == reflect.Ptr
+	if isPtr {
+		elemType = elemType.Elem()
+	}
+
+	if elemType.Kind() != reflect.Struct {
+		return reflect.Value{}
+	}
+
+	merged := reflect.New(elemType).Elem()
+
+	for i := range sliceVal.Len() {
+		elem := sliceVal.Index(i)
+		if isPtr {
+			if elem.IsNil() {
+				continue
+			}
+
+			elem = elem.Elem()
+		}
+
+		for j := range elemType.NumField() {
+			if isZeroValue(merged.Field(j)) && !isZeroValue(elem.Field(j)) {
+				merged.Field(j).Set(elem.Field(j))
+			}
+		}
+	}
+
+	return merged
+}
+
+// unwrapPointer dereferences a pointer type and its corresponding value.
+// If the value was already unwrapped (e.g. a merged slice element), it is kept as-is.
+func unwrapPointer(t reflect.Type, val reflect.Value) (reflect.Type, reflect.Value) {
+	if t.Kind() != reflect.Ptr {
+		return t, val
+	}
+
+	t = t.Elem()
+
+	if !val.IsValid() {
+		return t, reflect.Value{}
+	}
+
+	if val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			return t, reflect.Value{}
+		}
+
+		return t, val.Elem()
+	}
+
+	// Value is already the underlying struct (e.g. from mergeSliceValues).
+	return t, val
+}
+
 // fieldJSONName returns the JSON field name from the json struct tag.
 // Falls back to the Go field name if no tag is present.
 func fieldJSONName(field reflect.StructField) string {
@@ -151,15 +223,7 @@ func fieldJSONName(field reflect.StructField) string {
 // typeToSchema converts a reflect.Type to a JSONSchema property.
 func typeToSchema(t reflect.Type, val reflect.Value, opts *schema.Options) *schema.JSONSchema {
 	// Unwrap pointer types.
-	if t.Kind() == reflect.Ptr {
-		t = t.Elem()
-
-		if val.IsValid() && !val.IsNil() {
-			val = val.Elem()
-		} else {
-			val = reflect.Value{}
-		}
-	}
+	t, val = unwrapPointer(t, val)
 
 	// Handle time.Time as a special case.
 	if t == timeType {
@@ -186,7 +250,8 @@ func typeToSchema(t reflect.Type, val reflect.Value, opts *schema.Options) *sche
 		return &schema.JSONSchema{Type: "number"}
 
 	case reflect.Slice, reflect.Array:
-		items := typeToSchema(t.Elem(), reflect.Value{}, opts)
+		elemVal := mergeSliceValues(t, val, opts)
+		items := typeToSchema(t.Elem(), elemVal, opts)
 		return &schema.JSONSchema{
 			Type:  "array",
 			Items: items,
