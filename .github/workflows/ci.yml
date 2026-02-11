@@ -117,5 +117,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Update VERSION file
+          echo "${{ steps.version.outputs.tag }}" > VERSION
+          git add VERSION
+          git commit -m "chore: bump version to ${{ steps.version.outputs.tag }}"
+          git push origin master
+
+          # Create tag on the version-bump commit
           git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
           git push origin "${{ steps.version.outputs.tag }}"
