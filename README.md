@@ -275,6 +275,44 @@ type Form struct {
 ui, _ := parser.GenerateUISchemaWithOptions(Form{}, schema.DefaultOptions())
 // Root type is "Categorization" with Category children "Personal" and "Work"
 ```
+```json
+{
+  "type": "Categorization",
+  "elements": [
+    {
+      "type": "Category",
+      "label": "Personal",
+      "elements": [
+        {
+          "type": "Control",
+          "scope": "#/properties/name"
+        },
+        {
+          "type": "Control",
+          "scope": "#/properties/email"
+        }
+      ]
+    },
+    {
+      "type": "Category",
+      "label": "Work",
+      "elements": [
+        {
+          "type": "Control",
+          "scope": "#/properties/role"
+        },
+        {
+          "type": "Control",
+          "scope": "#/properties/bio",
+          "options": {
+            "multi": true
+          }
+        }
+      ]
+    }
+  ]
+}
+```
 
 ### JSON Schema Draft 2019-09
 
