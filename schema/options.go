@@ -1,8 +1,8 @@
 package schema
 
-// Options configures the behaviour of JSON Schema and UI Schema generation.
+// Options configures the behavior of JSON Schema and UI Schema generation.
 type Options struct {
-	// Translator is used to localise labels. Nil means no translation.
+	// Translator is used to localize labels. Nil means no translation.
 	Translator Translator
 	// Locale selects the locale passed to Translator (e.g. "uk", "en").
 	Locale string

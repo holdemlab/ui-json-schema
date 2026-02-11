@@ -1,10 +1,10 @@
 package schema
 
-// Translator resolves localised strings by key and locale.
+// Translator resolves localized strings by key and locale.
 // Implementations may load translations from files, databases or
 // embedded maps.
 type Translator interface {
-	// Translate returns the localised string for the given key and locale.
+	// Translate returns the localized string for the given key and locale.
 	// If no translation is found, it should return the key unchanged.
 	Translate(key, locale string) string
 }

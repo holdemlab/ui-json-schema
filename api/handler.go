@@ -64,7 +64,7 @@ func (h *Handler) GenerateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req generateRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON in request body")
 		return
 	}
@@ -133,7 +133,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 
-	_ = json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v) //nolint:errcheck // best-effort response write
 }
 
 // writeError writes a JSON error response.

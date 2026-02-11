@@ -294,7 +294,7 @@ func buildControl(scope, name string, formOpts schema.FormOptions, tags schema.F
 	return control
 }
 
-// ensureOptions initialises the Options map on a control if it is nil.
+// ensureOptions initializes the Options map on a control if it is nil.
 func ensureOptions(el *schema.UISchemaElement) {
 	if el.Options == nil {
 		el.Options = make(map[string]any)

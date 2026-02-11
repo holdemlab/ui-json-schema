@@ -1,4 +1,4 @@
-version: 2
+version: "2"
 run:
   timeout: 5m
   tests: true
@@ -26,45 +26,69 @@ linters:
     - predeclared   # Shadowed predeclared identifiers
     - unconvert     # Unnecessary type conversions
     - whitespace    # Whitespace issues
-
-linters-settings:
-  govet:
-    check-shadowing: true
-  gocyclo:
-    min-complexity: 15
-  dupl:
-    threshold: 100
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-  misspell:
-    locale: US
-  revive:
+  settings:
+    govet:
+      disable-all: true
+      enable:
+        - shadow
+        - assign
+        - atomic
+        - bools
+        - buildtag
+        - composites
+        - copylocks
+        - errorsas
+        - httpresponse
+        - loopclosure
+        - lostcancel
+        - nilfunc
+        - printf
+        - shift
+        - stdmethods
+        - stringintconv
+        - structtag
+        - tests
+        - unmarshal
+        - unreachable
+        - unusedresult
+    gocyclo:
+      min-complexity: 15
+    dupl:
+      threshold: 100
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    misspell:
+      locale: US
+    revive:
+      rules:
+        - name: exported
+          severity: warning
+          disabled: false
+        - name: unexported-return
+          severity: warning
+          disabled: false
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+  exclusions:
     rules:
-      - name: exported
-        severity: warning
-        disabled: false
-      - name: unexported-return
-        severity: warning
-        disabled: false
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
+      # Exclude some linters from running on tests files.
+      - path: _test\.go
+        linters:
+          - gocyclo
+          - dupl
+          - gosec
+          - goconst
+          - errcheck
+          - govet
 
 issues:
-  exclude-rules:
-    # Exclude some linters from running on tests files.
-    - path: _test\.go
-      linters:
-        - gocyclo
-        - dupl
-        - gosec
-        - goconst
-  
   max-issues-per-linter: 0
   max-same-issues: 0
 
 output:
-  format: colored-line-number
-  print-issued-lines: true
-  print-linter-name: true
+  formats:
+    text:
+      print-issued-lines: true
+      print-linter-name: true
