@@ -1,0 +1,70 @@
+version: 2
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - errcheck      # Checking for unchecked errors
+    - govet         # Reports suspicious constructs
+    - ineffassign   # Detects ineffectual assignments
+    - staticcheck   # Advanced static analysis
+    - unused        # Checks for unused code
+    - misspell      # Finds commonly misspelled English words
+    - revive        # Fast, configurable linter
+    - gosec         # Security-focused linter
+    - gocyclo       # Computes cyclomatic complexity
+    - dupl          # Code clone detection
+    - errname       # Checks error naming
+    - errorlint     # Error wrapping
+    - exhaustive    # Exhaustiveness checks
+    - goconst       # Repeated strings detection
+    - godot         # Comment punctuation
+    - goprintffuncname # Printf-like functions
+    - nolintlint    # Reports ill-formed nolint directives
+    - predeclared   # Shadowed predeclared identifiers
+    - unconvert     # Unnecessary type conversions
+    - whitespace    # Whitespace issues
+
+linters-settings:
+  govet:
+    check-shadowing: true
+  gocyclo:
+    min-complexity: 15
+  dupl:
+    threshold: 100
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  misspell:
+    locale: US
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+        disabled: false
+      - name: unexported-return
+        severity: warning
+        disabled: false
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on tests files.
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - dupl
+        - gosec
+        - goconst
+  
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
