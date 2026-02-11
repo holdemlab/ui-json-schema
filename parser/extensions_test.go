@@ -842,3 +842,164 @@ func TestGenerateJSONSchemaWithOptions_OmitEmpty_Nested(t *testing.T) {
 		t.Error("'region' should be excluded (omitempty + zero value in nested struct)")
 	}
 }
+
+// --- OmitEmpty: slices of structs ---
+
+type OmitEmptySliceEntry struct {
+	Name    string  `json:"name"`
+	Match   *string `json:"match,omitempty"`
+	Match0  *string `json:"match_0,omitempty"`
+	Match1  *string `json:"match_1,omitempty"`
+	Hits0   *int    `json:"hits_0,omitempty"`
+	Counter int     `json:"counter,omitempty"`
+}
+
+type OmitEmptySliceParent struct {
+	Title   string                `json:"title"`
+	Entries []OmitEmptySliceEntry `json:"entries"`
+}
+
+type OmitEmptySlicePtrParent struct {
+	Title   string                 `json:"title"`
+	Entries []*OmitEmptySliceEntry `json:"entries"`
+}
+
+func TestGenerateJSONSchemaWithOptions_OmitEmpty_SliceOfStructs(t *testing.T) {
+	match := "wild"
+	counter := 5
+
+	v := OmitEmptySliceParent{
+		Title: "game",
+		Entries: []OmitEmptySliceEntry{
+			{Name: "a", Match: &match, Counter: counter},
+			{Name: "b", Match: &match},
+		},
+	}
+
+	opts := schema.Options{Draft: "draft-07", OmitEmpty: true}
+
+	s, err := parser.GenerateJSONSchemaWithOptions(v, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	entries, ok := s.Properties["entries"]
+	if !ok {
+		t.Fatal("expected property 'entries'")
+	}
+
+	if entries.Items == nil {
+		t.Fatal("expected items in 'entries'")
+	}
+
+	items := entries.Items
+
+	// "name" has no omitempty → always present.
+	if _, ok := items.Properties["name"]; !ok {
+		t.Error("expected 'name' in array items")
+	}
+
+	// "match" is non-nil in both elements → present.
+	if _, ok := items.Properties["match"]; !ok {
+		t.Error("expected 'match' in array items (non-zero in elements)")
+	}
+
+	// "counter" is non-zero in at least one element → present.
+	if _, ok := items.Properties["counter"]; !ok {
+		t.Error("expected 'counter' in array items (non-zero in at least one element)")
+	}
+
+	// "match_0", "match_1", "hits_0" are nil in all elements → excluded.
+	for _, excluded := range []string{"match_0", "match_1", "hits_0"} {
+		if _, ok := items.Properties[excluded]; ok {
+			t.Errorf("'%s' should be excluded (omitempty + nil across all elements)", excluded)
+		}
+	}
+}
+
+func TestGenerateJSONSchemaWithOptions_OmitEmpty_SliceOfPtrStructs(t *testing.T) {
+	match := "wild"
+
+	v := OmitEmptySlicePtrParent{
+		Title: "game",
+		Entries: []*OmitEmptySliceEntry{
+			{Name: "a", Match: &match},
+			{Name: "b"},
+		},
+	}
+
+	opts := schema.Options{Draft: "draft-07", OmitEmpty: true}
+
+	s, err := parser.GenerateJSONSchemaWithOptions(v, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	items := s.Properties["entries"].Items
+
+	if _, ok := items.Properties["name"]; !ok {
+		t.Error("expected 'name' in array items")
+	}
+
+	if _, ok := items.Properties["match"]; !ok {
+		t.Error("expected 'match' (non-nil in at least one element)")
+	}
+
+	for _, excluded := range []string{"match_0", "match_1", "hits_0"} {
+		if _, ok := items.Properties[excluded]; ok {
+			t.Errorf("'%s' should be excluded (omitempty + nil across all ptr elements)", excluded)
+		}
+	}
+}
+
+func TestGenerateJSONSchemaWithOptions_OmitEmpty_EmptySlice(t *testing.T) {
+	v := OmitEmptySliceParent{
+		Title:   "game",
+		Entries: []OmitEmptySliceEntry{},
+	}
+
+	opts := schema.Options{Draft: "draft-07", OmitEmpty: true}
+
+	s, err := parser.GenerateJSONSchemaWithOptions(v, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	items := s.Properties["entries"].Items
+
+	// Empty slice → no value to inspect, all fields should be present.
+	expected := []string{"name", "match", "match_0", "match_1", "hits_0", "counter"}
+	for _, key := range expected {
+		if _, ok := items.Properties[key]; !ok {
+			t.Errorf("expected '%s' in items for empty slice (no filtering possible)", key)
+		}
+	}
+}
+
+func TestGenerateJSONSchemaWithOptions_OmitEmpty_SliceDisabled(t *testing.T) {
+	match := "wild"
+
+	v := OmitEmptySliceParent{
+		Title: "game",
+		Entries: []OmitEmptySliceEntry{
+			{Name: "a", Match: &match},
+		},
+	}
+
+	opts := schema.Options{Draft: "draft-07", OmitEmpty: false}
+
+	s, err := parser.GenerateJSONSchemaWithOptions(v, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	items := s.Properties["entries"].Items
+
+	// OmitEmpty disabled → all fields present regardless of values.
+	expected := []string{"name", "match", "match_0", "match_1", "hits_0", "counter"}
+	for _, key := range expected {
+		if _, ok := items.Properties[key]; !ok {
+			t.Errorf("expected '%s' (OmitEmpty disabled)", key)
+		}
+	}
+}
