@@ -14,6 +14,9 @@ import (
 // timeType is cached to avoid repeated reflect.TypeOf calls.
 var timeType = reflect.TypeOf(time.Time{})
 
+// layoutHorizontal is the form tag value for horizontal layout grouping.
+const layoutHorizontal = "horizontal"
+
 // GenerateJSONSchema generates a JSON Schema (Draft 7) from a Go value.
 // The value should be a struct or a pointer to a struct.
 func GenerateJSONSchema(v any) (*schema.JSONSchema, error) {
@@ -83,7 +86,32 @@ func applyTags(prop *schema.JSONSchema, tags schema.FieldTags) {
 	if tags.Format != "" {
 		prop.Format = tags.Format
 	}
+
+	if tags.Description != "" {
+		prop.Description = tags.Description
+	}
+
+	if tags.MinLength != nil {
+		prop.MinLength = tags.MinLength
+	}
+
+	if tags.MaxLength != nil {
+		prop.MaxLength = tags.MaxLength
+	}
+
+	if tags.Minimum != nil {
+		prop.Minimum = tags.Minimum
+	}
+
+	if tags.Maximum != nil {
+		prop.Maximum = tags.Maximum
+	}
+
+	if tags.Pattern != "" {
+		prop.Pattern = tags.Pattern
+	}
 }
+
 
 // fieldJSONName returns the JSON field name from the json struct tag.
 // Falls back to the Go field name if no tag is present.
@@ -184,8 +212,11 @@ func GenerateUISchemaWithOptions(v any, opts schema.Options) (*schema.UISchemaEl
 
 	// If any fields have categories, wrap elements into a Categorization.
 	if hasCategorizedElements(root) {
-		return buildCategorization(root), nil
+		return buildCategorization(root, &opts), nil
 	}
+
+	// Apply horizontal grouping on the root layout.
+	root.Elements = groupHorizontalElements(root.Elements)
 
 	return root, nil
 }
@@ -227,13 +258,25 @@ func buildUIElements(t reflect.Type, basePath string, parent *schema.UISchemaEle
 			label = translateLabel(label, tags.I18nKey, opts)
 
 			group := schema.NewGroup(label)
+
 			buildUIElements(fieldType, scope+"/properties", group, opts)
+			// Apply horizontal grouping within nested groups immediately,
+			// as groups are not affected by categorization.
+			group.Elements = groupHorizontalElements(group.Elements)
+			// Apply rule from the struct field tags to the Group element.
+			applyRule(group, tags)
 			parent.Elements = append(parent.Elements, group)
 
 			continue
 		}
 
 		control := buildControl(scope, name, formOpts, tags, opts)
+
+		if formOpts.Layout == layoutHorizontal {
+			ensureOptions(control)
+			control.Options["layout"] = layoutHorizontal
+		}
+
 		parent.Elements = append(parent.Elements, control)
 	}
 }
@@ -290,6 +333,8 @@ func buildControl(scope, name string, formOpts schema.FormOptions, tags schema.F
 	}
 
 	applyRule(control, tags)
+	applyCategoryRuleOptions(control, formOpts)
+	applyCategoryI18nOption(control, formOpts)
 
 	return control
 }
@@ -366,10 +411,75 @@ func hasCategorizedElements(root *schema.UISchemaElement) bool {
 	return false
 }
 
+// isHorizontalElement checks whether an element is marked with layout=horizontal.
+func isHorizontalElement(el *schema.UISchemaElement) bool {
+	if el.Options == nil {
+		return false
+	}
+
+	v, ok := el.Options["layout"]
+	return ok && v == layoutHorizontal
+}
+
+// consumeLayoutOption removes the internal "layout" option from an element
+// after it has been consumed by the grouping logic.
+func consumeLayoutOption(el *schema.UISchemaElement) {
+	if el.Options == nil {
+		return
+	}
+
+	delete(el.Options, "layout")
+
+	if len(el.Options) == 0 {
+		el.Options = nil
+	}
+}
+
+// groupHorizontalElements groups consecutive elements marked with
+// layout=horizontal into HorizontalLayout containers. A single
+// horizontal element is kept as a plain Control.
+func groupHorizontalElements(elements []*schema.UISchemaElement) []*schema.UISchemaElement {
+	var result []*schema.UISchemaElement
+	var pendingH []*schema.UISchemaElement
+
+	flush := func() {
+		if len(pendingH) == 0 {
+			return
+		}
+
+		for _, el := range pendingH {
+			consumeLayoutOption(el)
+		}
+
+		if len(pendingH) == 1 {
+			result = append(result, pendingH[0])
+		} else {
+			hl := schema.NewHorizontalLayout()
+			hl.Elements = append(hl.Elements, pendingH...)
+			result = append(result, hl)
+		}
+
+		pendingH = nil
+	}
+
+	for _, el := range elements {
+		if isHorizontalElement(el) {
+			pendingH = append(pendingH, el)
+		} else {
+			flush()
+			result = append(result, el)
+		}
+	}
+
+	flush()
+
+	return result
+}
+
 // buildCategorization groups elements by their category option
 // into a Categorization layout. Elements without a category are
 // placed into an "Other" category.
-func buildCategorization(root *schema.UISchemaElement) *schema.UISchemaElement {
+func buildCategorization(root *schema.UISchemaElement, opts *schema.Options) *schema.UISchemaElement {
 	catMap := make(map[string]*schema.UISchemaElement)
 	catOrder := make([]string, 0)
 
@@ -398,7 +508,11 @@ func buildCategorization(root *schema.UISchemaElement) *schema.UISchemaElement {
 
 	categorization := schema.NewCategorization()
 	for _, name := range catOrder {
-		categorization.Elements = append(categorization.Elements, catMap[name])
+		cat := catMap[name]
+		cat.Elements = groupHorizontalElements(cat.Elements)
+		extractCategoryRule(cat)
+		extractCategoryI18n(cat, opts)
+		categorization.Elements = append(categorization.Elements, cat)
 	}
 
 	return categorization
@@ -416,5 +530,102 @@ func applyRule(control *schema.UISchemaElement, tags schema.FieldTags) {
 		control.Rule = schema.ParseRuleExpression(tags.EnableIf, schema.EffectEnable)
 	case tags.DisableIf != "":
 		control.Rule = schema.ParseRuleExpression(tags.DisableIf, schema.EffectDisable)
+	}
+}
+
+// applyCategoryRuleOptions stores a category-level rule hint in the control's
+// Options map. The hint is later consumed by extractCategoryRule when building
+// the Categorization layout. Only the first matching effect is stored
+// (priority: visibleIf → hideIf → enableIf → disableIf).
+func applyCategoryRuleOptions(el *schema.UISchemaElement, formOpts schema.FormOptions) {
+	var effect, expr string
+
+	switch {
+	case formOpts.VisibleIf != "":
+		effect, expr = schema.EffectShow, formOpts.VisibleIf
+	case formOpts.HideIf != "":
+		effect, expr = schema.EffectHide, formOpts.HideIf
+	case formOpts.EnableIf != "":
+		effect, expr = schema.EffectEnable, formOpts.EnableIf
+	case formOpts.DisableIf != "":
+		effect, expr = schema.EffectDisable, formOpts.DisableIf
+	}
+
+	if expr == "" {
+		return
+	}
+
+	ensureOptions(el)
+	el.Options["categoryRuleEffect"] = effect
+	el.Options["categoryRuleExpr"] = expr
+}
+
+// extractCategoryRule scans the children of a Category element for a
+// category rule hint (stored by applyCategoryRuleOptions). The first
+// hint found is converted into a Rule on the Category itself and then
+// removed from the child element's Options.
+func extractCategoryRule(cat *schema.UISchemaElement) {
+	for _, el := range cat.Elements {
+		if el.Options == nil {
+			continue
+		}
+
+		effect, hasEffect := el.Options["categoryRuleEffect"].(string)
+		expr, hasExpr := el.Options["categoryRuleExpr"].(string)
+
+		if !hasEffect || !hasExpr {
+			continue
+		}
+
+		cat.Rule = schema.ParseFormRuleExpression(expr, effect)
+
+		delete(el.Options, "categoryRuleEffect")
+		delete(el.Options, "categoryRuleExpr")
+
+		if len(el.Options) == 0 {
+			el.Options = nil
+		}
+
+		return
+	}
+}
+
+// applyCategoryI18nOption stores a category i18n key hint in the control's
+// Options map. The hint is later consumed by extractCategoryI18n when building
+// the Categorization layout.
+func applyCategoryI18nOption(el *schema.UISchemaElement, formOpts schema.FormOptions) {
+	if formOpts.I18nKey == "" {
+		return
+	}
+
+	ensureOptions(el)
+	el.Options["categoryI18n"] = formOpts.I18nKey
+}
+
+// extractCategoryI18n scans the children of a Category element for a
+// categoryI18n hint. The first hint found sets the I18n field on the
+// Category and translates the label via the Translator if available.
+// The hint is then removed from the child element's Options.
+func extractCategoryI18n(cat *schema.UISchemaElement, opts *schema.Options) {
+	for _, el := range cat.Elements {
+		if el.Options == nil {
+			continue
+		}
+
+		i18nKey, ok := el.Options["categoryI18n"].(string)
+		if !ok || i18nKey == "" {
+			continue
+		}
+
+		cat.I18n = i18nKey
+		cat.Label = translateLabel(cat.Label, i18nKey, opts)
+
+		delete(el.Options, "categoryI18n")
+
+		if len(el.Options) == 0 {
+			el.Options = nil
+		}
+
+		return
 	}
 }

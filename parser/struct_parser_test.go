@@ -149,6 +149,27 @@ type AllTags struct {
 	Email string `json:"email" required:"true" format:"email" default:"user@example.com" enum:"user@example.com,admin@example.com"`
 }
 
+// --- Validation constraint structs ---
+
+type ValidationStringField struct {
+	FirstName string `json:"firstName" minLength:"3" description:"Please enter your first name"`
+	PostCode  string `json:"postalCode" maxLength:"5"`
+	Code      string `json:"code" pattern:"^[A-Z]{2}$"`
+}
+
+type ValidationNumericField struct {
+	Age   int     `json:"age" minimum:"0" maximum:"150"`
+	Price float64 `json:"price" minimum:"0.01" maximum:"99999.99"`
+}
+
+type ValidationCombined struct {
+	FirstName   string `json:"firstName" minLength:"3" description:"Please enter your first name"`
+	SecondName  string `json:"secondName" minLength:"3" description:"Please enter your second name"`
+	Vegetarian  bool   `json:"vegetarian"`
+	BirthDate   string `json:"birthDate" format:"date" description:"Please enter your birth date."`
+	Nationality string `json:"nationality" enum:"DE,IT,JP,US,RU,Other"`
+}
+
 type OmitemptyField struct {
 	Name  string `json:"name"`
 	Notes string `json:"notes,omitempty"`
@@ -729,6 +750,161 @@ func TestGenerateJSONSchema_AllTags(t *testing.T) {
 	}
 	if len(email.Enum) != 2 {
 		t.Errorf("expected 2 enum values, got %d", len(email.Enum))
+	}
+}
+
+// --- Validation Constraints ---
+
+func TestGenerateJSONSchema_MinLength(t *testing.T) {
+	s, err := parser.GenerateJSONSchema(ValidationStringField{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	fn := s.Properties["firstName"]
+	if fn.MinLength == nil || *fn.MinLength != 3 {
+		t.Errorf("expected minLength 3, got %v", fn.MinLength)
+	}
+}
+
+func TestGenerateJSONSchema_MaxLength(t *testing.T) {
+	s, err := parser.GenerateJSONSchema(ValidationStringField{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	pc := s.Properties["postalCode"]
+	if pc.MaxLength == nil || *pc.MaxLength != 5 {
+		t.Errorf("expected maxLength 5, got %v", pc.MaxLength)
+	}
+}
+
+func TestGenerateJSONSchema_Pattern(t *testing.T) {
+	s, err := parser.GenerateJSONSchema(ValidationStringField{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	code := s.Properties["code"]
+	if code.Pattern != "^[A-Z]{2}$" {
+		t.Errorf("expected pattern '^[A-Z]{2}$', got %q", code.Pattern)
+	}
+}
+
+func TestGenerateJSONSchema_Description(t *testing.T) {
+	s, err := parser.GenerateJSONSchema(ValidationStringField{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	fn := s.Properties["firstName"]
+	if fn.Description != "Please enter your first name" {
+		t.Errorf("expected description, got %q", fn.Description)
+	}
+}
+
+func TestGenerateJSONSchema_MinimumMaximum(t *testing.T) {
+	s, err := parser.GenerateJSONSchema(ValidationNumericField{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	age := s.Properties["age"]
+	if age.Minimum == nil || *age.Minimum != 0 {
+		t.Errorf("expected minimum 0, got %v", age.Minimum)
+	}
+
+	if age.Maximum == nil || *age.Maximum != 150 {
+		t.Errorf("expected maximum 150, got %v", age.Maximum)
+	}
+}
+
+func TestGenerateJSONSchema_MinimumMaximumFloat(t *testing.T) {
+	s, err := parser.GenerateJSONSchema(ValidationNumericField{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	price := s.Properties["price"]
+	if price.Minimum == nil || *price.Minimum != 0.01 {
+		t.Errorf("expected minimum 0.01, got %v", price.Minimum)
+	}
+
+	if price.Maximum == nil || *price.Maximum != 99999.99 {
+		t.Errorf("expected maximum 99999.99, got %v", price.Maximum)
+	}
+}
+
+func TestGenerateJSONSchema_ValidationCombined(t *testing.T) {
+	s, err := parser.GenerateJSONSchema(ValidationCombined{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	fn := s.Properties["firstName"]
+	if fn.MinLength == nil || *fn.MinLength != 3 {
+		t.Errorf("expected firstName minLength 3, got %v", fn.MinLength)
+	}
+
+	if fn.Description != "Please enter your first name" {
+		t.Errorf("expected firstName description, got %q", fn.Description)
+	}
+
+	sn := s.Properties["secondName"]
+	if sn.MinLength == nil || *sn.MinLength != 3 {
+		t.Errorf("expected secondName minLength 3, got %v", sn.MinLength)
+	}
+
+	bd := s.Properties["birthDate"]
+	if bd.Format != "date" {
+		t.Errorf("expected birthDate format 'date', got %q", bd.Format)
+	}
+
+	if bd.Description != "Please enter your birth date." {
+		t.Errorf("expected birthDate description, got %q", bd.Description)
+	}
+
+	nat := s.Properties["nationality"]
+	if len(nat.Enum) != 6 {
+		t.Errorf("expected 6 enum values, got %d", len(nat.Enum))
+	}
+}
+
+func TestGenerateJSONSchema_ValidationInJSON(t *testing.T) {
+	s, err := parser.GenerateJSONSchema(ValidationStringField{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	props := raw["properties"].(map[string]any)
+
+	fn := props["firstName"].(map[string]any)
+	if fn["minLength"] != float64(3) {
+		t.Errorf("expected minLength 3 in JSON, got %v", fn["minLength"])
+	}
+
+	if fn["description"] != "Please enter your first name" {
+		t.Errorf("expected description in JSON, got %v", fn["description"])
+	}
+
+	pc := props["postalCode"].(map[string]any)
+	if pc["maxLength"] != float64(5) {
+		t.Errorf("expected maxLength 5 in JSON, got %v", pc["maxLength"])
+	}
+
+	code := props["code"].(map[string]any)
+	if code["pattern"] != "^[A-Z]{2}$" {
+		t.Errorf("expected pattern in JSON, got %v", code["pattern"])
 	}
 }
 
