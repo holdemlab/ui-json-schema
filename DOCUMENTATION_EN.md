@@ -42,6 +42,11 @@
    - [Roles and Permissions](#roles-and-permissions)
    - [Categorization (Tabs)](#categorization-tabs)
    - [Conditional Visibility](#conditional-visibility)
+   - [Validation Constraints](#validation-constraints)
+   - [HorizontalLayout](#horizontallayout)
+   - [Rules on Category](#rules-on-category)
+   - [i18n on Category](#i18n-on-category)
+   - [Rules on Group (Nested Structs)](#rules-on-group-nested-structs)
    - [JSON Schema Draft 2019-09](#json-schema-draft-2019-09)
    - [OmitEmpty — Empty Field Filtering](#omitempty--empty-field-filtering)
    - [OpenAPI 3.x → JSON Forms](#openapi-3x--json-forms)
@@ -131,6 +136,11 @@ type JSONSchema struct {
     Description          string                 `json:"description,omitempty"`
     Title                string                 `json:"title,omitempty"`
     Const                any                    `json:"const,omitempty"`
+    MinLength            *int                   `json:"minLength,omitempty"`
+    MaxLength            *int                   `json:"maxLength,omitempty"`
+    Minimum              *float64               `json:"minimum,omitempty"`
+    Maximum              *float64               `json:"maximum,omitempty"`
+    Pattern              string                 `json:"pattern,omitempty"`
 }
 ```
 
@@ -150,6 +160,11 @@ type JSONSchema struct {
 | `Description` | `string` | Field description |
 | `Title` | `string` | Field title |
 | `Const` | `any` | Fixed value |
+| `MinLength` | `*int` | Minimum string length |
+| `MaxLength` | `*int` | Maximum string length |
+| `Minimum` | `*float64` | Minimum numeric value |
+| `Maximum` | `*float64` | Maximum numeric value |
+| `Pattern` | `string` | Regex pattern for string fields |
 
 **Constructor:**
 
@@ -169,6 +184,7 @@ Represents a UI Schema element for [JSON Forms](https://jsonforms.io/). Can be a
 type UISchemaElement struct {
     Type     string             `json:"type"`
     Label    string             `json:"label,omitempty"`
+    I18n     string             `json:"i18n,omitempty"`
     Scope    string             `json:"scope,omitempty"`
     Elements []*UISchemaElement `json:"elements,omitempty"`
     Options  map[string]any     `json:"options,omitempty"`
@@ -182,6 +198,7 @@ type UISchemaElement struct {
 |-------|------|-------------|
 | `Type` | `string` | Element type: `"VerticalLayout"`, `"HorizontalLayout"`, `"Group"`, `"Categorization"`, `"Category"`, `"Control"` |
 | `Label` | `string` | Label (for `Group`, `Category`, `Control`) |
+| `I18n` | `string` | i18n translation key (for `Category`) |
 | `Scope` | `string` | JSON Pointer path to the property (for `Control`), e.g. `"#/properties/name"` |
 | `Elements` | `[]*UISchemaElement` | Child elements (for layouts) |
 | `Options` | `map[string]any` | Additional options (`readonly`, `multi`, `renderer`) |
@@ -249,6 +266,23 @@ rule := schema.ParseRuleExpression("is_active=true", schema.EffectShow)
 // rule.Condition.Schema.Const = true (bool)
 ```
 
+**Form tag rule parsing:**
+
+```go
+func ParseFormRuleExpression(expr string, effect string) *UISchemaRule
+```
+
+Similar to `ParseRuleExpression`, but accepts expressions in `"field:value"` format (with `:` as separator instead of `=`). Used for parsing rules from `form` tag directives (`visibleIf=field:value`).
+
+**Example:**
+
+```go
+rule := schema.ParseFormRuleExpression("provideAddress:true", schema.EffectShow)
+// rule.Effect = "SHOW"
+// rule.Condition.Scope = "#/properties/provideAddress"
+// rule.Condition.Schema.Const = true (bool)
+```
+
 ---
 
 ### FormOptions
@@ -263,6 +297,11 @@ type FormOptions struct {
     Multiline bool   // Multi-line text field
     Category  string // Category (tab) name
     Layout    string // Layout override ("horizontal")
+    VisibleIf string // SHOW rule for Category/Group ("field:value")
+    HideIf    string // HIDE rule for Category/Group
+    EnableIf  string // ENABLE rule for Category/Group
+    DisableIf string // DISABLE rule for Category/Group
+    I18nKey   string // i18n key for Category label
 }
 ```
 
@@ -283,6 +322,9 @@ form:"readonly"
 form:"multiline"
 form:"category=Personal Data"
 form:"label=Name;readonly;category=Profile"
+form:"layout=horizontal"
+form:"category=Address;visibleIf=provideAddress:true"
+form:"category=Personal;i18n=category.personal"
 ```
 
 ---
@@ -304,6 +346,12 @@ type FieldTags struct {
     EnableIf  string // "field=value" for ENABLE
     DisableIf string // "field=value" for DISABLE
     Renderer  string // custom renderer name
+    Description string // field description
+    MinLength   *int   // minimum string length
+    MaxLength   *int   // maximum string length
+    Minimum     *float64 // minimum numeric value
+    Maximum     *float64 // maximum numeric value
+    Pattern     string   // regex pattern for string fields
 }
 ```
 
@@ -478,6 +526,11 @@ Same as above, with the ability to specify options (i18n, renderers, permissions
    - Nested structs → `Group` with the field name as label.
    - Categories → automatic wrapping into `Categorization` → `Category`.
    - Rules are applied by priority: `visibleIf` → `hideIf` → `enableIf` → `disableIf`.
+   - Group rules: `visibleIf`/`hideIf`/`enableIf`/`disableIf` tags on a struct field apply to the corresponding `Group`.
+   - Category rules: `visibleIf`/`hideIf`/`enableIf`/`disableIf` directives in the `form` tag apply to the `Category`.
+   - Category i18n: `i18n=key` directive in the `form` tag sets the `i18n` field and translates the label via `Translator`.
+   - `layout=horizontal`: adjacent fields with the same `layout=horizontal` are grouped into a `HorizontalLayout`.
+8. Validation constraints (`minLength`, `maxLength`, `minimum`, `maximum`, `pattern`, `description`) from struct tags are written to JSON Schema.
 
 ---
 
@@ -664,6 +717,12 @@ Error format:
 | `default:"value"` | Default | Sets `default` (auto type coercion) | `default:"true"`, `default:"42"` |
 | `enum:"a,b,c"` | Allowed values | Sets `enum[]` | `enum:"admin,user,moderator"` |
 | `format:"fmt"` | Format | Sets `format` | `format:"email"`, `format:"date-time"`, `format:"uri"` |
+| `description:"text"` | Description | Sets `description` | `description:"User name"` |
+| `minLength:"n"` | Min length | Sets `minLength` | `minLength:"2"` |
+| `maxLength:"n"` | Max length | Sets `maxLength` | `maxLength:"100"` |
+| `minimum:"n"` | Min value | Sets `minimum` | `minimum:"0"`, `minimum:"1.5"` |
+| `maximum:"n"` | Max value | Sets `maximum` | `maximum:"999"`, `maximum:"99.9"` |
+| `pattern:"regex"` | Pattern | Sets `pattern` | `pattern:"^[A-Z]"` |
 
 **`default` type coercion:**
 
@@ -687,6 +746,11 @@ Directives are separated by `;`:
 | `multiline` | Multi-line field | `form:"multiline"` |
 | `category=Name` | Category (tab) | `form:"category=Personal"` |
 | `layout=horizontal` | Layout override | `form:"layout=horizontal"` |
+| `visibleIf=field:value` | SHOW rule for Category | `form:"category=Address;visibleIf=provideAddress:true"` |
+| `hideIf=field:value` | HIDE rule for Category | `form:"category=Secret;hideIf=role:admin"` |
+| `enableIf=field:value` | ENABLE rule for Category | `form:"category=Settings;enableIf=active:true"` |
+| `disableIf=field:value` | DISABLE rule for Category | `form:"category=Edit;disableIf=locked:true"` |
+| `i18n=key` | i18n key for Category | `form:"category=Personal;i18n=category.personal"` |
 
 **Combinations:**
 
@@ -708,6 +772,8 @@ Value format: `"field=value"`.
 | `hideIf:"field=val"` | `HIDE` | `hideIf:"role=admin"` | Hide when `role == "admin"` |
 | `enableIf:"field=val"` | `ENABLE` | `enableIf:"agreed=true"` | Enable when `agreed == true` |
 | `disableIf:"field=val"` | `DISABLE` | `disableIf:"locked=true"` | Disable when `locked == true` |
+
+> **Note:** These tags work on both regular fields (Control) and nested struct fields (Group). For Category rules, use the `visibleIf`, `hideIf`, `enableIf`, `disableIf` directives inside the `form` tag (see [form Tag](#form-tag--ui-options)).
 
 **Rule priority** (only the first match is applied):
 
@@ -1072,6 +1138,188 @@ The `pet_name` control in UI Schema:
     "effect": "SHOW",
     "condition": {
       "scope": "#/properties/has_pet",
+      "schema": { "const": true }
+    }
+  }
+}
+```
+
+---
+
+### Validation Constraints
+
+Struct tags `minLength`, `maxLength`, `minimum`, `maximum`, `pattern`, `description` are written to JSON Schema:
+
+```go
+type Registration struct {
+    Username string  `json:"username" minLength:"3" maxLength:"20" pattern:"^[a-zA-Z0-9_]+$" description:"User login"`
+    Email    string  `json:"email" format:"email" description:"Email address"`
+    Age      int     `json:"age" minimum:"18" maximum:"120"`
+    Score    float64 `json:"score" minimum:"0" maximum:"100"`
+}
+
+js, _ := parser.GenerateJSONSchema(Registration{})
+```
+
+Result for `username`:
+
+```json
+{
+  "type": "string",
+  "description": "User login",
+  "minLength": 3,
+  "maxLength": 20,
+  "pattern": "^[a-zA-Z0-9_]+$"
+}
+```
+
+Result for `age`:
+
+```json
+{
+  "type": "integer",
+  "minimum": 18,
+  "maximum": 120
+}
+```
+
+---
+
+### HorizontalLayout
+
+Adjacent fields with the same `form:"layout=horizontal"` are automatically grouped into a `HorizontalLayout`:
+
+```go
+type Address struct {
+    City    string `json:"city" form:"layout=horizontal"`
+    ZipCode string `json:"zip_code" form:"layout=horizontal"`
+    Country string `json:"country"`
+}
+
+ui, _ := parser.GenerateUISchema(Address{})
+```
+
+Resulting UI Schema:
+
+```json
+{
+  "type": "VerticalLayout",
+  "elements": [
+    {
+      "type": "HorizontalLayout",
+      "elements": [
+        { "type": "Control", "scope": "#/properties/city" },
+        { "type": "Control", "scope": "#/properties/zip_code" }
+      ]
+    },
+    { "type": "Control", "scope": "#/properties/country" }
+  ]
+}
+```
+
+---
+
+### Rules on Category
+
+The `visibleIf`, `hideIf`, `enableIf`, `disableIf` directives in the `form` tag allow adding a `Rule` to a `Category`:
+
+```go
+type Profile struct {
+    Name            string `json:"name" form:"category=Personal"`
+    ProvideAddress  bool   `json:"provideAddress" form:"category=Personal"`
+    Street          string `json:"street" form:"category=Address;visibleIf=provideAddress:true"`
+    City            string `json:"city" form:"category=Address;visibleIf=provideAddress:true"`
+}
+
+ui, _ := parser.GenerateUISchema(Profile{})
+```
+
+The "Address" category will have a rule:
+
+```json
+{
+  "type": "Category",
+  "label": "Address",
+  "elements": [...],
+  "rule": {
+    "effect": "SHOW",
+    "condition": {
+      "scope": "#/properties/provideAddress",
+      "schema": { "const": true }
+    }
+  }
+}
+```
+
+---
+
+### i18n on Category
+
+The `i18n=key` directive in the `form` tag sets the `i18n` field on a `Category` and translates the label via `Translator`:
+
+```go
+type Settings struct {
+    Name  string `json:"name" form:"category=Personal;i18n=category.personal"`
+    Theme string `json:"theme" form:"category=Appearance;i18n=category.appearance"`
+}
+
+opts := schema.Options{
+    Translator: func(key string) string {
+        translations := map[string]string{
+            "category.personal":   "Особисте",
+            "category.appearance": "Зовнішній вигляд",
+        }
+        return translations[key]
+    },
+}
+
+ui, _ := parser.GenerateUISchemaWithOptions(Settings{}, opts)
+```
+
+Result:
+
+```json
+{
+  "type": "Category",
+  "label": "Особисте",
+  "i18n": "category.personal",
+  "elements": [...]
+}
+```
+
+---
+
+### Rules on Group (Nested Structs)
+
+The `visibleIf`, `hideIf`, `enableIf`, `disableIf` tags on a struct field add a rule to the corresponding `Group`:
+
+```go
+type Order struct {
+    Total          float64 `json:"total"`
+    ProvideAddress bool    `json:"provideAddress"`
+    Address        struct {
+        Street string `json:"street"`
+        City   string `json:"city"`
+    } `json:"address" visibleIf:"provideAddress=true"`
+}
+
+ui, _ := parser.GenerateUISchema(Order{})
+```
+
+The "address" group will have a rule:
+
+```json
+{
+  "type": "Group",
+  "label": "Address",
+  "elements": [
+    { "type": "Control", "scope": "#/properties/address/properties/street" },
+    { "type": "Control", "scope": "#/properties/address/properties/city" }
+  ],
+  "rule": {
+    "effect": "SHOW",
+    "condition": {
+      "scope": "#/properties/provideAddress",
       "schema": { "const": true }
     }
   }

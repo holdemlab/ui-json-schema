@@ -42,6 +42,11 @@
    - [Ролі та дозволи](#ролі-та-дозволи)
    - [Категоризація (вкладки)](#категоризація-вкладки)
    - [Умовна видимість](#умовна-видимість)
+   - [Обмеження валідації](#обмеження-валідації)
+   - [HorizontalLayout](#horizontallayout)
+   - [Правила на Category](#правила-на-category)
+   - [i18n на Category](#i18n-на-category)
+   - [Правила на Group](#правила-на-group-вкладені-структури)
    - [JSON Schema Draft 2019-09](#json-schema-draft-2019-09)
    - [OmitEmpty — фільтрація порожніх полів](#omitempty--фільтрація-порожніх-полів)
    - [OpenAPI 3.x → JSON Forms](#openapi-3x--json-forms)
@@ -131,6 +136,11 @@ type JSONSchema struct {
     Description          string                 `json:"description,omitempty"`
     Title                string                 `json:"title,omitempty"`
     Const                any                    `json:"const,omitempty"`
+    MinLength            *int                   `json:"minLength,omitempty"`
+    MaxLength            *int                   `json:"maxLength,omitempty"`
+    Minimum              *float64               `json:"minimum,omitempty"`
+    Maximum              *float64               `json:"maximum,omitempty"`
+    Pattern              string                 `json:"pattern,omitempty"`
 }
 ```
 
@@ -150,6 +160,11 @@ type JSONSchema struct {
 | `Description` | `string` | Опис поля |
 | `Title` | `string` | Заголовок поля |
 | `Const` | `any` | Фіксоване значення |
+| `MinLength` | `*int` | Мінімальна довжина рядка |
+| `MaxLength` | `*int` | Максимальна довжина рядка |
+| `Minimum` | `*float64` | Мінімальне числове значення |
+| `Maximum` | `*float64` | Максимальне числове значення |
+| `Pattern` | `string` | Regex-шаблон для рядкових полів |
 
 **Конструктор:**
 
@@ -169,6 +184,7 @@ func NewJSONSchema() *JSONSchema
 type UISchemaElement struct {
     Type     string             `json:"type"`
     Label    string             `json:"label,omitempty"`
+    I18n     string             `json:"i18n,omitempty"`
     Scope    string             `json:"scope,omitempty"`
     Elements []*UISchemaElement `json:"elements,omitempty"`
     Options  map[string]any     `json:"options,omitempty"`
@@ -182,6 +198,7 @@ type UISchemaElement struct {
 |------|-----|------|
 | `Type` | `string` | Тип елемента: `"VerticalLayout"`, `"HorizontalLayout"`, `"Group"`, `"Categorization"`, `"Category"`, `"Control"` |
 | `Label` | `string` | Мітка (для `Group`, `Category`, `Control`) |
+| `I18n` | `string` | Ключ i18n-перекладу (для `Category`) |
 | `Scope` | `string` | JSON Pointer шлях до властивості (для `Control`), наприклад `"#/properties/name"` |
 | `Elements` | `[]*UISchemaElement` | Дочірні елементи (для лейаутів) |
 | `Options` | `map[string]any` | Додаткові опції (`readonly`, `multi`, `renderer`) |
@@ -249,6 +266,23 @@ rule := schema.ParseRuleExpression("is_active=true", schema.EffectShow)
 // rule.Condition.Schema.Const = true (bool)
 ```
 
+**Парсинг правил з form-тегу:**
+
+```go
+func ParseFormRuleExpression(expr string, effect string) *UISchemaRule
+```
+
+Аналогічна `ParseRuleExpression`, але приймає вираз у форматі `"field:value"` (з `:` як роздільником замість `=`). Використовується для парсингу правил з директив `form`-тегу (`visibleIf=field:value`).
+
+**Приклад:**
+
+```go
+rule := schema.ParseFormRuleExpression("provideAddress:true", schema.EffectShow)
+// rule.Effect = "SHOW"
+// rule.Condition.Scope = "#/properties/provideAddress"
+// rule.Condition.Schema.Const = true (bool)
+```
+
 ---
 
 ### FormOptions
@@ -283,6 +317,9 @@ form:"readonly"
 form:"multiline"
 form:"category=Особисті дані"
 form:"label=Ім'я;readonly;category=Профіль"
+form:"layout=horizontal"
+form:"category=Адреса;visibleIf=provideAddress:true"
+form:"category=Особисте;i18n=category.personal"
 ```
 
 ---
@@ -304,6 +341,12 @@ type FieldTags struct {
     EnableIf  string // "field=value" для ENABLE
     DisableIf string // "field=value" для DISABLE
     Renderer  string // назва кастомного рендерера
+    Description string // опис поля
+    MinLength   *int   // мінімальна довжина рядка
+    MaxLength   *int   // максимальна довжина рядка
+    Minimum     *float64 // мінімальне числове значення
+    Maximum     *float64 // максимальне числове значення
+    Pattern     string   // regex-шаблон для рядкових полів
 }
 ```
 
@@ -478,6 +521,11 @@ func GenerateUISchemaWithOptions(v any, opts schema.Options) (*schema.UISchemaEl
    - Вкладені структури → `Group` з назвою поля як мітка.
    - Категорії → автоматична обгортка в `Categorization` → `Category`.
    - Правила застосовуються за пріоритетом: `visibleIf` → `hideIf` → `enableIf` → `disableIf`.
+   - Правила на Group: теги `visibleIf`/`hideIf`/`enableIf`/`disableIf` на полі-структурі застосовуються до відповідного `Group`.
+   - Правила на Category: директиви `visibleIf`/`hideIf`/`enableIf`/`disableIf` у тезі `form` застосовуються до `Category`.
+   - i18n на Category: директива `i18n=key` у тезі `form` встановлює поле `i18n` та перекладає мітку через `Translator`.
+   - `layout=horizontal`: сусідні поля з однаковим `layout=horizontal` групуються в `HorizontalLayout`.
+8. Обмеження валідації (`minLength`, `maxLength`, `minimum`, `maximum`, `pattern`, `description`) зі struct-тегів записуються у JSON Schema.
 
 ---
 
@@ -664,6 +712,12 @@ func (h *Handler) GenerateHandler(w http.ResponseWriter, r *http.Request)
 | `default:"value"` | За замовчуванням | Встановлює `default` (авто-приведення типу) | `default:"true"`, `default:"42"` |
 | `enum:"a,b,c"` | Допустимі значення | Встановлює `enum[]` | `enum:"admin,user,moderator"` |
 | `format:"fmt"` | Формат | Встановлює `format` | `format:"email"`, `format:"date-time"`, `format:"uri"` |
+| `description:"text"` | Опис поля | Встановлює `description` | `description:"Ім'я користувача"` |
+| `minLength:"n"` | Мін. довжина | Встановлює `minLength` | `minLength:"2"` |
+| `maxLength:"n"` | Макс. довжина | Встановлює `maxLength` | `maxLength:"100"` |
+| `minimum:"n"` | Мін. значення | Встановлює `minimum` | `minimum:"0"`, `minimum:"1.5"` |
+| `maximum:"n"` | Макс. значення | Встановлює `maximum` | `maximum:"999"`, `maximum:"99.9"` |
+| `pattern:"regex"` | Шаблон | Встановлює `pattern` | `pattern:"^[A-Z]"` |
 
 **Приведення типу `default`:**
 
@@ -687,6 +741,11 @@ func (h *Handler) GenerateHandler(w http.ResponseWriter, r *http.Request)
 | `multiline` | Багаторядкове поле | `form:"multiline"` |
 | `category=Назва` | Категорія (вкладка) | `form:"category=Особисті"` |
 | `layout=horizontal` | Переоприділення лейауту | `form:"layout=horizontal"` |
+| `visibleIf=field:value` | SHOW rule для Category | `form:"category=Адреса;visibleIf=provideAddress:true"` |
+| `hideIf=field:value` | HIDE rule для Category | `form:"category=Secret;hideIf=role:admin"` |
+| `enableIf=field:value` | ENABLE rule для Category | `form:"category=Settings;enableIf=active:true"` |
+| `disableIf=field:value` | DISABLE rule для Category | `form:"category=Edit;disableIf=locked:true"` |
+| `i18n=key` | i18n ключ для Category | `form:"category=Особисте;i18n=category.personal"` |
 
 **Комбінації:**
 
@@ -708,6 +767,8 @@ type Profile struct {
 | `hideIf:"field=val"` | `HIDE` | `hideIf:"role=admin"` | Приховати, коли `role == "admin"` |
 | `enableIf:"field=val"` | `ENABLE` | `enableIf:"agreed=true"` | Активувати, коли `agreed == true` |
 | `disableIf:"field=val"` | `DISABLE` | `disableIf:"locked=true"` | Деактивувати, коли `locked == true` |
+
+> **Примітка:** Ці теги працюють як на звичайних полях (Control), так і на вкладених структурах (Group). Для Category використовуйте директиви `visibleIf`, `hideIf`, `enableIf`, `disableIf` всередині тегу `form` (див. [Теги form](#form-тег--ui-опції)).
 
 **Пріоритет правил** (застосовується лише перше знайдене):
 
@@ -1072,6 +1133,188 @@ ui, _ := parser.GenerateUISchema(Survey{})
     "effect": "SHOW",
     "condition": {
       "scope": "#/properties/has_pet",
+      "schema": { "const": true }
+    }
+  }
+}
+```
+
+---
+
+### Обмеження валідації
+
+Структурні теги `minLength`, `maxLength`, `minimum`, `maximum`, `pattern`, `description` записуються у JSON Schema:
+
+```go
+type Registration struct {
+    Username string  `json:"username" minLength:"3" maxLength:"20" pattern:"^[a-zA-Z0-9_]+$" description:"Логін користувача"`
+    Email    string  `json:"email" format:"email" description:"Email адреса"`
+    Age      int     `json:"age" minimum:"18" maximum:"120"`
+    Score    float64 `json:"score" minimum:"0" maximum:"100"`
+}
+
+js, _ := parser.GenerateJSONSchema(Registration{})
+```
+
+Результат для `username`:
+
+```json
+{
+  "type": "string",
+  "description": "Логін користувача",
+  "minLength": 3,
+  "maxLength": 20,
+  "pattern": "^[a-zA-Z0-9_]+$"
+}
+```
+
+Результат для `age`:
+
+```json
+{
+  "type": "integer",
+  "minimum": 18,
+  "maximum": 120
+}
+```
+
+---
+
+### HorizontalLayout
+
+Сусідні поля з однаковим `form:"layout=horizontal"` автоматично групуються в `HorizontalLayout`:
+
+```go
+type Address struct {
+    City    string `json:"city" form:"layout=horizontal"`
+    ZipCode string `json:"zip_code" form:"layout=horizontal"`
+    Country string `json:"country"`
+}
+
+ui, _ := parser.GenerateUISchema(Address{})
+```
+
+Результат UI Schema:
+
+```json
+{
+  "type": "VerticalLayout",
+  "elements": [
+    {
+      "type": "HorizontalLayout",
+      "elements": [
+        { "type": "Control", "scope": "#/properties/city" },
+        { "type": "Control", "scope": "#/properties/zip_code" }
+      ]
+    },
+    { "type": "Control", "scope": "#/properties/country" }
+  ]
+}
+```
+
+---
+
+### Правила на Category
+
+Директиви `visibleIf`, `hideIf`, `enableIf`, `disableIf` у тезі `form` дозволяють додати правило (`Rule`) на `Category`:
+
+```go
+type Profile struct {
+    Name            string `json:"name" form:"category=Особисте"`
+    ProvideAddress  bool   `json:"provideAddress" form:"category=Особисте"`
+    Street          string `json:"street" form:"category=Адреса;visibleIf=provideAddress:true"`
+    City            string `json:"city" form:"category=Адреса;visibleIf=provideAddress:true"`
+}
+
+ui, _ := parser.GenerateUISchema(Profile{})
+```
+
+Категорія "Адреса" отримає правило:
+
+```json
+{
+  "type": "Category",
+  "label": "Адреса",
+  "elements": [...],
+  "rule": {
+    "effect": "SHOW",
+    "condition": {
+      "scope": "#/properties/provideAddress",
+      "schema": { "const": true }
+    }
+  }
+}
+```
+
+---
+
+### i18n на Category
+
+Директива `i18n=key` у тезі `form` встановлює поле `i18n` на `Category` та перекладає мітку через `Translator`:
+
+```go
+type Settings struct {
+    Name  string `json:"name" form:"category=Personal;i18n=category.personal"`
+    Theme string `json:"theme" form:"category=Appearance;i18n=category.appearance"`
+}
+
+opts := schema.Options{
+    Translator: func(key string) string {
+        translations := map[string]string{
+            "category.personal":   "Особисте",
+            "category.appearance": "Зовнішній вигляд",
+        }
+        return translations[key]
+    },
+}
+
+ui, _ := parser.GenerateUISchemaWithOptions(Settings{}, opts)
+```
+
+Результат:
+
+```json
+{
+  "type": "Category",
+  "label": "Особисте",
+  "i18n": "category.personal",
+  "elements": [...]
+}
+```
+
+---
+
+### Правила на Group (вкладені структури)
+
+Теги `visibleIf`, `hideIf`, `enableIf`, `disableIf` на полі-структурі додають правило до відповідного `Group`:
+
+```go
+type Order struct {
+    Total          float64 `json:"total"`
+    ProvideAddress bool    `json:"provideAddress"`
+    Address        struct {
+        Street string `json:"street"`
+        City   string `json:"city"`
+    } `json:"address" visibleIf:"provideAddress=true"`
+}
+
+ui, _ := parser.GenerateUISchema(Order{})
+```
+
+Група "address" отримає правило:
+
+```json
+{
+  "type": "Group",
+  "label": "Address",
+  "elements": [
+    { "type": "Control", "scope": "#/properties/address/properties/street" },
+    { "type": "Control", "scope": "#/properties/address/properties/city" }
+  ],
+  "rule": {
+    "effect": "SHOW",
+    "condition": {
+      "scope": "#/properties/provideAddress",
       "schema": { "const": true }
     }
   }

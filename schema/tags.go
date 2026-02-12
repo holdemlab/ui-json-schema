@@ -26,6 +26,18 @@ type FieldTags struct {
 	DisableIf string
 	// Renderer holds a custom renderer name for the field.
 	Renderer string
+	// Description holds a human-readable description for the field.
+	Description string
+	// MinLength holds the minimum string length constraint.
+	MinLength *int
+	// MaxLength holds the maximum string length constraint.
+	MaxLength *int
+	// Minimum holds the minimum numeric value constraint.
+	Minimum *float64
+	// Maximum holds the maximum numeric value constraint.
+	Maximum *float64
+	// Pattern holds a regex pattern constraint for string fields.
+	Pattern string
 }
 
 // ParseFieldTags extracts schema-relevant tags from a struct field.
@@ -60,6 +72,14 @@ func ParseFieldTags(field reflect.StructField) FieldTags {
 		ft.Renderer = v
 	}
 
+	parseRuleTags(field, &ft)
+	parseValidationTags(field, &ft)
+
+	return ft
+}
+
+// parseRuleTags extracts conditional rule tags from a struct field.
+func parseRuleTags(field reflect.StructField, ft *FieldTags) {
 	if v := field.Tag.Get("visibleIf"); v != "" {
 		ft.VisibleIf = v
 	}
@@ -75,8 +95,41 @@ func ParseFieldTags(field reflect.StructField) FieldTags {
 	if v := field.Tag.Get("disableIf"); v != "" {
 		ft.DisableIf = v
 	}
+}
 
-	return ft
+// parseValidationTags extracts JSON Schema validation constraint tags from a struct field.
+func parseValidationTags(field reflect.StructField, ft *FieldTags) {
+	if v := field.Tag.Get("description"); v != "" {
+		ft.Description = v
+	}
+
+	if v := field.Tag.Get("minLength"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			ft.MinLength = &n
+		}
+	}
+
+	if v := field.Tag.Get("maxLength"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			ft.MaxLength = &n
+		}
+	}
+
+	if v := field.Tag.Get("minimum"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			ft.Minimum = &f
+		}
+	}
+
+	if v := field.Tag.Get("maximum"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			ft.Maximum = &f
+		}
+	}
+
+	if v := field.Tag.Get("pattern"); v != "" {
+		ft.Pattern = v
+	}
 }
 
 // parseDefaultValue converts a string default value to the appropriate Go type

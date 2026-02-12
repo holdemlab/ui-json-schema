@@ -155,6 +155,119 @@ Automatic generation of JSON Schema and UI Schema from Go structs and JSON objec
 
 ---
 
+## Stage 9 — Validation Constraints (JSON Schema) ✅
+
+Adding JSON Schema validation constraints via struct tags.
+
+- [x] Add fields to `JSONSchema`: `MinLength`, `MaxLength`, `Minimum`, `Maximum`, `Pattern`, `Description`
+- [x] Add parsing of new tags in `ParseFieldTags`:
+  - `minLength:"3"` → `"minLength": 3`
+  - `maxLength:"100"` → `"maxLength": 100`
+  - `minimum:"0"` → `"minimum": 0`
+  - `maximum:"999"` → `"maximum": 999`
+  - `pattern:"^[a-z]+$"` → `"pattern": "^[a-z]+$"`
+  - `description:"Please enter your name"` → `"description": "Please enter your name"`
+- [x] Apply new tags in `applyTags()` (`parser/struct_parser.go`)
+- [x] Support integer and float values for `minimum`/`maximum`
+- [x] Unit tests for each new tag + combinations
+- [x] Lint: 0 issues
+
+**Files:** `schema/jsonschema.go`, `schema/tags.go`, `parser/struct_parser.go`
+
+**Result:** JSON Schema with validation constraints — `minLength`, `maxLength`, `minimum`, `maximum`, `pattern`, `description`.
+
+---
+
+## Stage 10 — HorizontalLayout ✅
+
+Horizontal layout support via `form:"layout=horizontal"` tag. Adjacent fields with the same layout are grouped into a single `HorizontalLayout`.
+
+- [x] Implement field grouping in `buildUIElements` based on `FormOptions.Layout`:
+  - Consecutive fields with `form:"layout=horizontal"` are merged into a `HorizontalLayout`
+  - Fields without layout remain as individual Controls (VerticalLayout by default)
+  - Horizontal grouping works inside Category, Group, and root VerticalLayout
+- [x] ~~Same support in `buildOpenAPIUISchema` (OpenAPI parser)~~ — skipped: OpenAPI specs don't carry layout hints
+- [x] Unit tests:
+  - Grouping 2+ fields into HorizontalLayout
+  - Mix: horizontal + vertical fields
+  - HorizontalLayout inside Category
+  - HorizontalLayout inside nested struct (Group)
+  - Single field with layout=horizontal → do not create HorizontalLayout (keep Control)
+- [x] Lint: 0 issues
+
+**Files:** `parser/struct_parser.go`, `parser/openapi_parser.go`
+
+**Result:** `form:"layout=horizontal"` groups adjacent fields into `HorizontalLayout`.
+
+**Example:**
+```go
+type Person struct {
+    FirstName string `json:"firstName" form:"layout=horizontal"`
+    LastName  string `json:"lastName" form:"layout=horizontal"`
+    Email     string `json:"email"`
+}
+```
+Generates:
+```json
+{
+  "type": "VerticalLayout",
+  "elements": [
+    {
+      "type": "HorizontalLayout",
+      "elements": [
+        { "type": "Control", "scope": "#/properties/firstName" },
+        { "type": "Control", "scope": "#/properties/lastName" }
+      ]
+    },
+    { "type": "Control", "scope": "#/properties/email" }
+  ]
+}
+```
+
+---
+
+## Stage 11 — Rules and i18n on Layout Elements ✅
+
+Extending Rules and i18n from Control level to Category, Group, and other layout elements.
+
+### 11.1 — Rules on Category / Group ✅
+
+- [x] Add tag `categoryRule:"visibleIf=field:value"` or extend `form` tag for category rules:
+  - `form:"category=Address;visibleIf=provideAddress:true"` → Category "Address" gets SHOW rule
+- [x] Generate `rule` block on `Category` element in `buildCategorization()`
+- [x] Support all effects: SHOW, HIDE, ENABLE, DISABLE
+- [x] Unit tests:
+  - Rule on Category (SHOW/HIDE)
+  - Category without rule (no regression)
+  - Multiple categories — one with rule, another without
+
+### 11.2 — i18n on Category ✅
+
+- [x] Add i18n key support on Category via extended `form` tag:
+  - `form:"category=Personal;i18n=category.personal"` → Category receives i18n key
+- [x] Translate category label via `Translator` (same as Control labels)
+- [x] Add `I18n` field to `UISchemaElement` (`json:"i18n,omitempty"`)
+- [x] Unit tests:
+  - Category with i18n key
+  - Category without i18n (fallback to label)
+  - Category label translation via Translator
+
+### 11.3 — Rules on Nested Structs (Group) ✅
+
+- [x] Support `visibleIf`/`hideIf` on struct fields → rule applied to Group:
+  ```go
+  Address AddressStruct `json:"address" visibleIf:"provideAddress=true"`
+  ```
+- [x] Unit tests
+
+- [x] Lint: 0 issues
+
+**Files:** `schema/uischema.go`, `schema/tags.go`, `parser/struct_parser.go`
+
+**Result:** Full Rules and i18n support on all UI Schema levels — Control, Group, Category.
+
+---
+
 ## Summary Table
 
 | Stage | Name                           | Priority  | Dependency  |
@@ -168,3 +281,6 @@ Automatic generation of JSON Schema and UI Schema from Go structs and JSON objec
 | 6     | HTTP API                       | 🟡 Medium | Stages 1-5  |
 | 7     | Performance & Quality          | 🟡 Medium | Stages 1-6  |
 | 8     | Extensions                     | 🟢 Low    | Stage 7     |
+| 9     | Validation Constraints         | 🔴 High   | Stage 2     |
+| 10    | HorizontalLayout               | 🔴 High   | Stage 3     |
+| 11    | Rules / i18n on Layouts        | 🟡 Medium | Stages 4,10 |

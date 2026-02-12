@@ -155,6 +155,119 @@
 
 ---
 
+## Етап 9 — Validation Constraints (JSON Schema) ✅
+
+Додавання підтримки валідаційних обмежень JSON Schema через struct-теги.
+
+- [x] Додати поля до `JSONSchema`: `MinLength`, `MaxLength`, `Minimum`, `Maximum`, `Pattern`, `Description`
+- [x] Додати парсинг нових тегів у `ParseFieldTags`:
+  - `minLength:"3"` → `"minLength": 3`
+  - `maxLength:"100"` → `"maxLength": 100`
+  - `minimum:"0"` → `"minimum": 0`
+  - `maximum:"999"` → `"maximum": 999`
+  - `pattern:"^[a-z]+$"` → `"pattern": "^[a-z]+$"`
+  - `description:"Please enter your name"` → `"description": "Please enter your name"`
+- [x] Застосування нових тегів у `applyTags()` (`parser/struct_parser.go`)
+- [x] Підтримка цілих та дробових значень для `minimum`/`maximum`
+- [x] Unit-тести на кожен новий тег + комбінації
+- [x] Лінт: 0 issues
+
+**Файли:** `schema/jsonschema.go`, `schema/tags.go`, `parser/struct_parser.go`
+
+**Результат:** JSON Schema з валідаційними обмеженнями — `minLength`, `maxLength`, `minimum`, `maximum`, `pattern`, `description`.
+
+---
+
+## Етап 10 — HorizontalLayout ✅
+
+Підтримка горизонтального лейауту через `form:"layout=horizontal"` тег. Сусідні поля з однаковим лейаутом групуються в один `HorizontalLayout`.
+
+- [x] Реалізувати групування полів у `buildUIElements` за `FormOptions.Layout`:
+  - Послідовні поля з `form:"layout=horizontal"` об'єднуються в `HorizontalLayout`
+  - Поля без layout залишаються як окремі Control (VerticalLayout за замовчуванням)
+  - Горизонтальне групування працює всередині Category, Group, кореневого VerticalLayout
+- [x] ~~Аналогічна підтримка в `buildOpenAPIUISchema` (OpenAPI парсер)~~ — пропущено: OpenAPI-специфікації не несуть layout-хінтів
+- [x] Unit-тести:
+  - Групування 2+ полів у HorizontalLayout
+  - Мікс: horizontal + vertical поля
+  - HorizontalLayout всередині Category
+  - HorizontalLayout всередині вкладеної структури (Group)
+  - Одне поле з layout=horizontal → не створювати HorizontalLayout (залишити Control)
+- [x] Лінт: 0 issues
+
+**Файли:** `parser/struct_parser.go`, `parser/openapi_parser.go`
+
+**Результат:** `form:"layout=horizontal"` групує сусідні поля в `HorizontalLayout`.
+
+**Приклад:**
+```go
+type Person struct {
+    FirstName string `json:"firstName" form:"layout=horizontal"`
+    LastName  string `json:"lastName" form:"layout=horizontal"`
+    Email     string `json:"email"`
+}
+```
+Генерує:
+```json
+{
+  "type": "VerticalLayout",
+  "elements": [
+    {
+      "type": "HorizontalLayout",
+      "elements": [
+        { "type": "Control", "scope": "#/properties/firstName" },
+        { "type": "Control", "scope": "#/properties/lastName" }
+      ]
+    },
+    { "type": "Control", "scope": "#/properties/email" }
+  ]
+}
+```
+
+---
+
+## Етап 11 — Rules та i18n на Layout-елементах ✅
+
+Розширення Rules та i18n з рівня Control на рівень Category, Group та інших лейаутів.
+
+### 11.1 — Rules на Category / Group ✅
+
+- [x] Додати тег `categoryRule:"visibleIf=field:value"` або розширити `form` тег для rules на category:
+  - `form:"category=Address;visibleIf=provideAddress:true"` → Category "Address" має rule SHOW
+- [x] Генерація `rule` блоку на `Category` елементі в `buildCategorization()`
+- [x] Підтримка всіх ефектів: SHOW, HIDE, ENABLE, DISABLE
+- [x] Unit-тести:
+  - Rule на Category (SHOW/HIDE)
+  - Category без rule (без регресії)
+  - Кілька категорій — одна з rule, інша без
+
+### 11.2 — i18n на Category ✅
+
+- [x] Додати підтримку `i18n` ключа на Category через розширений `form` тег:
+  - `form:"category=Personal;i18n=category.personal"` → Category отримує i18n ключ
+- [x] Переклад label категорії через `Translator` (аналогічно Control labels)
+- [x] Додати поле `I18n` до `UISchemaElement` (`json:"i18n,omitempty"`)
+- [x] Unit-тести:
+  - Category з i18n ключем
+  - Category без i18n (fallback на label)
+  - Переклад label категорії через Translator
+
+### 11.3 — Rules на вкладених структурах (Group) ✅
+
+- [x] Підтримка `visibleIf`/`hideIf` на полі-структурі → rule застосовується до Group:
+  ```go
+  Address AddressStruct `json:"address" visibleIf:"provideAddress=true"`
+  ```
+- [x] Unit-тести
+
+- [x] Лінт: 0 issues
+
+**Файли:** `schema/uischema.go`, `schema/tags.go`, `parser/struct_parser.go`
+
+**Результат:** Повна підтримка Rules та i18n на всіх рівнях UI Schema — Control, Group, Category.
+
+---
+
 ## Зведена таблиця
 
 | Етап | Назва                          | Пріоритет | Залежність |
@@ -168,3 +281,6 @@
 | 6    | HTTP API                       | 🟡 Medium | Етап 1-5   |
 | 7    | Продуктивність та якість       | 🟡 Medium | Етап 1-6   |
 | 8    | Розширення                     | 🟢 Low    | Етап 7     |
+| 9    | Validation Constraints         | 🔴 High   | Етап 2     |
+| 10   | HorizontalLayout               | 🔴 High   | Етап 3     |
+| 11   | Rules / i18n на Layout         | 🟡 Medium | Етап 4, 10 |
