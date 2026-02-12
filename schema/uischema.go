@@ -10,6 +10,7 @@ import (
 type UISchemaElement struct {
 	Type     string             `json:"type"`
 	Label    string             `json:"label,omitempty"`
+	I18n     string             `json:"i18n,omitempty"`
 	Scope    string             `json:"scope,omitempty"`
 	Elements []*UISchemaElement `json:"elements,omitempty"`
 	Options  map[string]any     `json:"options,omitempty"`
@@ -99,6 +100,17 @@ type FormOptions struct {
 	Category string
 	// Layout overrides the default VerticalLayout. Supported: "horizontal".
 	Layout string
+	// VisibleIf holds a SHOW rule expression for the parent layout (Category/Group).
+	// Format: "field:value" (colon-separated because '=' is used by the form tag syntax).
+	VisibleIf string
+	// HideIf holds a HIDE rule expression for the parent layout.
+	HideIf string
+	// EnableIf holds an ENABLE rule expression for the parent layout.
+	EnableIf string
+	// DisableIf holds a DISABLE rule expression for the parent layout.
+	DisableIf string
+	// I18nKey holds an i18n translation key for the Category label.
+	I18nKey string
 }
 
 // ParseFormTag parses a form struct tag value like "label=Full name;multiline;readonly".
@@ -138,10 +150,37 @@ func ParseFormTag(tag string) FormOptions {
 			if hasValue {
 				opts.Layout = strings.TrimSpace(value)
 			}
+		case "i18n":
+			if hasValue {
+				opts.I18nKey = strings.TrimSpace(value)
+			}
+		default:
+			parseFormRulePart(key, value, hasValue, &opts)
 		}
 	}
 
 	return opts
+}
+
+// parseFormRulePart handles rule-related keys inside a form tag
+// (visibleIf, hideIf, enableIf, disableIf).
+func parseFormRulePart(key, value string, hasValue bool, opts *FormOptions) {
+	if !hasValue {
+		return
+	}
+
+	v := strings.TrimSpace(value)
+
+	switch key {
+	case "visibleIf":
+		opts.VisibleIf = v
+	case "hideIf":
+		opts.HideIf = v
+	case "enableIf":
+		opts.EnableIf = v
+	case "disableIf":
+		opts.DisableIf = v
+	}
 }
 
 // ParseRuleExpression parses a condition expression like "field=value" and returns
@@ -175,6 +214,15 @@ func ParseRuleExpression(expr string, effect string) *UISchemaRule {
 			},
 		},
 	}
+}
+
+// ParseFormRuleExpression parses a rule expression from a form tag value.
+// Form tags use ":" as the field:value separator (since "=" is the key=value
+// delimiter in form tags). The first ":" is converted to "=" and then
+// delegated to ParseRuleExpression.
+func ParseFormRuleExpression(expr string, effect string) *UISchemaRule {
+	normalized := strings.Replace(expr, ":", "=", 1)
+	return ParseRuleExpression(normalized, effect)
 }
 
 // parseConditionValue converts a string condition value to the appropriate Go type.

@@ -16,6 +16,11 @@ type JSONSchema struct {
 	Description          string                 `json:"description,omitempty"`
 	Title                string                 `json:"title,omitempty"`
 	Const                any                    `json:"const,omitempty"`
+	MinLength            *int                   `json:"minLength,omitempty"`
+	MaxLength            *int                   `json:"maxLength,omitempty"`
+	Minimum              *float64               `json:"minimum,omitempty"`
+	Maximum              *float64               `json:"maximum,omitempty"`
+	Pattern              string                 `json:"pattern,omitempty"`
 }
 
 // NewJSONSchema creates a root JSON Schema object with the $schema field set.

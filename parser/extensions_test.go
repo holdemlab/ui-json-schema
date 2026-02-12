@@ -700,6 +700,272 @@ func TestCategorization_JSON(t *testing.T) {
 	}
 }
 
+// --- HorizontalLayout ---
+
+type HorizontalPair struct {
+	FirstName string `json:"firstName" form:"layout=horizontal"`
+	LastName  string `json:"lastName" form:"layout=horizontal"`
+	Email     string `json:"email"`
+}
+
+type HorizontalMixed struct {
+	FirstName string `json:"firstName" form:"layout=horizontal"`
+	LastName  string `json:"lastName" form:"layout=horizontal"`
+	Bio       string `json:"bio"`
+	City      string `json:"city" form:"layout=horizontal"`
+	Country   string `json:"country" form:"layout=horizontal"`
+}
+
+type HorizontalSingle struct {
+	Name  string `json:"name" form:"layout=horizontal"`
+	Email string `json:"email"`
+}
+
+type HorizontalNested struct {
+	Title   string `json:"title"`
+	Address struct {
+		Street string `json:"street" form:"layout=horizontal"`
+		Number string `json:"number" form:"layout=horizontal"`
+		City   string `json:"city"`
+	} `json:"address"`
+}
+
+type HorizontalCategory struct {
+	FirstName string `json:"firstName" form:"category=Personal;layout=horizontal"`
+	LastName  string `json:"lastName" form:"category=Personal;layout=horizontal"`
+	Email     string `json:"email" form:"category=Contact"`
+	Phone     string `json:"phone" form:"category=Contact;layout=horizontal"`
+	Fax       string `json:"fax" form:"category=Contact;layout=horizontal"`
+}
+
+type HorizontalAllFields struct {
+	A string `json:"a" form:"layout=horizontal"`
+	B string `json:"b" form:"layout=horizontal"`
+	C string `json:"c" form:"layout=horizontal"`
+}
+
+func TestGenerateUISchema_HorizontalLayout_Pair(t *testing.T) {
+	ui, err := parser.GenerateUISchema(HorizontalPair{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have 2 elements: HorizontalLayout + Control(email)
+	if len(ui.Elements) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(ui.Elements))
+	}
+
+	hl := ui.Elements[0]
+	if hl.Type != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout, got %q", hl.Type)
+	}
+
+	if len(hl.Elements) != 2 {
+		t.Fatalf("expected 2 elements in HorizontalLayout, got %d", len(hl.Elements))
+	}
+
+	if hl.Elements[0].Scope != "#/properties/firstName" {
+		t.Errorf("expected firstName scope, got %q", hl.Elements[0].Scope)
+	}
+
+	if hl.Elements[1].Scope != "#/properties/lastName" {
+		t.Errorf("expected lastName scope, got %q", hl.Elements[1].Scope)
+	}
+
+	email := ui.Elements[1]
+	if email.Type != "Control" {
+		t.Errorf("expected Control, got %q", email.Type)
+	}
+
+	if email.Scope != "#/properties/email" {
+		t.Errorf("expected email scope, got %q", email.Scope)
+	}
+}
+
+func TestGenerateUISchema_HorizontalLayout_Mixed(t *testing.T) {
+	ui, err := parser.GenerateUISchema(HorizontalMixed{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// HL(firstName,lastName) + Control(bio) + HL(city,country)
+	if len(ui.Elements) != 3 {
+		t.Fatalf("expected 3 elements, got %d", len(ui.Elements))
+	}
+
+	hl1 := ui.Elements[0]
+	if hl1.Type != "HorizontalLayout" {
+		t.Errorf("expected first HorizontalLayout, got %q", hl1.Type)
+	}
+
+	if len(hl1.Elements) != 2 {
+		t.Errorf("expected 2 elements in first HL, got %d", len(hl1.Elements))
+	}
+
+	bio := ui.Elements[1]
+	if bio.Type != "Control" || bio.Scope != "#/properties/bio" {
+		t.Errorf("expected bio Control, got %q %q", bio.Type, bio.Scope)
+	}
+
+	hl2 := ui.Elements[2]
+	if hl2.Type != "HorizontalLayout" {
+		t.Errorf("expected second HorizontalLayout, got %q", hl2.Type)
+	}
+
+	if len(hl2.Elements) != 2 {
+		t.Errorf("expected 2 elements in second HL, got %d", len(hl2.Elements))
+	}
+}
+
+func TestGenerateUISchema_HorizontalLayout_SingleField(t *testing.T) {
+	ui, err := parser.GenerateUISchema(HorizontalSingle{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Single horizontal field → no HorizontalLayout created, just Controls.
+	if len(ui.Elements) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(ui.Elements))
+	}
+
+	for _, el := range ui.Elements {
+		if el.Type != "Control" {
+			t.Errorf("expected Control for single horizontal field, got %q", el.Type)
+		}
+	}
+}
+
+func TestGenerateUISchema_HorizontalLayout_Nested(t *testing.T) {
+	ui, err := parser.GenerateUISchema(HorizontalNested{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Control(title) + Group(address)
+	if len(ui.Elements) != 2 {
+		t.Fatalf("expected 2 root elements, got %d", len(ui.Elements))
+	}
+
+	group := ui.Elements[1]
+	if group.Type != typeGroup {
+		t.Fatalf("expected Group, got %q", group.Type)
+	}
+
+	// Inside group: HL(street,number) + Control(city)
+	if len(group.Elements) != 2 {
+		t.Fatalf("expected 2 group elements, got %d", len(group.Elements))
+	}
+
+	hl := group.Elements[0]
+	if hl.Type != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout inside Group, got %q", hl.Type)
+	}
+
+	if len(hl.Elements) != 2 {
+		t.Errorf("expected 2 elements in nested HL, got %d", len(hl.Elements))
+	}
+
+	city := group.Elements[1]
+	if city.Type != "Control" || city.Scope != "#/properties/address/properties/city" {
+		t.Errorf("expected city Control, got %q %q", city.Type, city.Scope)
+	}
+}
+
+func TestGenerateUISchema_HorizontalLayout_WithCategory(t *testing.T) {
+	ui, err := parser.GenerateUISchemaWithOptions(HorizontalCategory{}, schema.DefaultOptions())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ui.Type != typeCategorization {
+		t.Fatalf("expected Categorization, got %q", ui.Type)
+	}
+
+	if len(ui.Elements) != 2 {
+		t.Fatalf("expected 2 categories, got %d", len(ui.Elements))
+	}
+
+	// Personal category: HL(firstName,lastName)
+	personal := ui.Elements[0]
+	if len(personal.Elements) != 1 {
+		t.Fatalf("expected 1 element in Personal, got %d", len(personal.Elements))
+	}
+
+	hl := personal.Elements[0]
+	if hl.Type != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout in Personal, got %q", hl.Type)
+	}
+
+	if len(hl.Elements) != 2 {
+		t.Errorf("expected 2 controls in Personal HL, got %d", len(hl.Elements))
+	}
+
+	// Contact category: Control(email) + HL(phone,fax)
+	contact := ui.Elements[1]
+	if len(contact.Elements) != 2 {
+		t.Fatalf("expected 2 elements in Contact, got %d", len(contact.Elements))
+	}
+
+	if contact.Elements[0].Type != "Control" {
+		t.Errorf("expected Control for email, got %q", contact.Elements[0].Type)
+	}
+
+	hlContact := contact.Elements[1]
+	if hlContact.Type != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout for phone/fax, got %q", hlContact.Type)
+	}
+}
+
+func TestGenerateUISchema_HorizontalLayout_AllFields(t *testing.T) {
+	ui, err := parser.GenerateUISchema(HorizontalAllFields{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// All 3 fields horizontal → single HorizontalLayout.
+	if len(ui.Elements) != 1 {
+		t.Fatalf("expected 1 element, got %d", len(ui.Elements))
+	}
+
+	hl := ui.Elements[0]
+	if hl.Type != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout, got %q", hl.Type)
+	}
+
+	if len(hl.Elements) != 3 {
+		t.Errorf("expected 3 controls in HL, got %d", len(hl.Elements))
+	}
+}
+
+func TestGenerateUISchema_HorizontalLayout_JSON(t *testing.T) {
+	ui, err := parser.GenerateUISchema(HorizontalPair{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := json.Marshal(ui)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	elements := raw["elements"].([]any)
+	hl := elements[0].(map[string]any)
+
+	if hl["type"] != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout in JSON, got %v", hl["type"])
+	}
+
+	hlElements := hl["elements"].([]any)
+	if len(hlElements) != 2 {
+		t.Errorf("expected 2 elements in HorizontalLayout JSON, got %d", len(hlElements))
+	}
+}
+
 // --- OmitEmpty ---
 
 type OmitEmptyStruct struct {
@@ -1001,5 +1267,676 @@ func TestGenerateJSONSchemaWithOptions_OmitEmpty_SliceDisabled(t *testing.T) {
 		if _, ok := items.Properties[key]; !ok {
 			t.Errorf("expected '%s' (OmitEmpty disabled)", key)
 		}
+	}
+}
+
+// --- Stage 11.1: Rules on Category ---
+
+type CategoryRuleShow struct {
+	Provide   bool   `json:"provideAddress"`
+	FirstName string `json:"firstName" form:"category=Personal"`
+	Street    string `json:"street" form:"category=Address;visibleIf=provideAddress:true"`
+	City      string `json:"city" form:"category=Address"`
+}
+
+func TestGenerateUISchema_CategoryRule_Show(t *testing.T) {
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(CategoryRuleShow{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ui.Type != typeCategorization {
+		t.Fatalf("expected Categorization root, got %q", ui.Type)
+	}
+
+	// Find the Address category.
+	var address *schema.UISchemaElement
+	for _, el := range ui.Elements {
+		if el.Label == "Address" {
+			address = el
+			break
+		}
+	}
+
+	if address == nil {
+		t.Fatal("expected Address category")
+	}
+
+	if address.Rule == nil {
+		t.Fatal("expected rule on Address category")
+	}
+
+	if address.Rule.Effect != schema.EffectShow {
+		t.Errorf("expected SHOW effect, got %q", address.Rule.Effect)
+	}
+
+	if address.Rule.Condition.Scope != "#/properties/provideAddress" {
+		t.Errorf("expected scope '#/properties/provideAddress', got %q", address.Rule.Condition.Scope)
+	}
+
+	if address.Rule.Condition.Schema.Const != true {
+		t.Errorf("expected const true, got %v", address.Rule.Condition.Schema.Const)
+	}
+
+	// Controls inside Address should NOT have the rule hint options.
+	for _, el := range address.Elements {
+		if el.Options != nil {
+			if _, ok := el.Options["categoryRuleEffect"]; ok {
+				t.Error("categoryRuleEffect should be consumed")
+			}
+
+			if _, ok := el.Options["categoryRuleExpr"]; ok {
+				t.Error("categoryRuleExpr should be consumed")
+			}
+		}
+	}
+}
+
+type CategoryRuleHide struct {
+	Role   string `json:"role"`
+	Public string `json:"public" form:"category=Public"`
+	Secret string `json:"secret" form:"category=Admin;hideIf=role:guest"`
+	Config string `json:"config" form:"category=Admin"`
+}
+
+func TestGenerateUISchema_CategoryRule_Hide(t *testing.T) {
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(CategoryRuleHide{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var admin *schema.UISchemaElement
+	for _, el := range ui.Elements {
+		if el.Label == "Admin" {
+			admin = el
+			break
+		}
+	}
+
+	if admin == nil {
+		t.Fatal("expected Admin category")
+	}
+
+	if admin.Rule == nil {
+		t.Fatal("expected rule on Admin category")
+	}
+
+	if admin.Rule.Effect != schema.EffectHide {
+		t.Errorf("expected HIDE effect, got %q", admin.Rule.Effect)
+	}
+
+	if admin.Rule.Condition.Schema.Const != "guest" {
+		t.Errorf("expected const 'guest', got %v", admin.Rule.Condition.Schema.Const)
+	}
+}
+
+func TestGenerateUISchema_CategoryRule_NoRegression(t *testing.T) {
+	// Existing CategorizedForm should still work without rules.
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(CategorizedForm{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ui.Type != typeCategorization {
+		t.Fatalf("expected Categorization, got %q", ui.Type)
+	}
+
+	for _, cat := range ui.Elements {
+		if cat.Rule != nil {
+			t.Errorf("category %q should have no rule, got %+v", cat.Label, cat.Rule)
+		}
+	}
+}
+
+type CategoryRuleMixed struct {
+	Enabled bool   `json:"enabled"`
+	Name    string `json:"name" form:"category=Basic"`
+	Age     int    `json:"age" form:"category=Basic"`
+	Extra   string `json:"extra" form:"category=Advanced;visibleIf=enabled:true"`
+}
+
+func TestGenerateUISchema_CategoryRule_MixedCategories(t *testing.T) {
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(CategoryRuleMixed{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ui.Type != typeCategorization {
+		t.Fatalf("expected Categorization, got %q", ui.Type)
+	}
+
+	var basic, advanced *schema.UISchemaElement
+	for _, el := range ui.Elements {
+		switch el.Label {
+		case "Basic":
+			basic = el
+		case "Advanced":
+			advanced = el
+		}
+	}
+
+	if basic == nil {
+		t.Fatal("expected Basic category")
+	}
+
+	if basic.Rule != nil {
+		t.Error("Basic category should have no rule")
+	}
+
+	if advanced == nil {
+		t.Fatal("expected Advanced category")
+	}
+
+	if advanced.Rule == nil {
+		t.Fatal("expected rule on Advanced category")
+	}
+
+	if advanced.Rule.Effect != schema.EffectShow {
+		t.Errorf("expected SHOW, got %q", advanced.Rule.Effect)
+	}
+}
+
+type CategoryRuleEnable struct {
+	Active  bool   `json:"active"`
+	Setting string `json:"setting" form:"category=Settings;enableIf=active:true"`
+}
+
+func TestGenerateUISchema_CategoryRule_Enable(t *testing.T) {
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(CategoryRuleEnable{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var settings *schema.UISchemaElement
+	for _, el := range ui.Elements {
+		if el.Label == "Settings" {
+			settings = el
+			break
+		}
+	}
+
+	if settings == nil {
+		t.Fatal("expected Settings category")
+	}
+
+	if settings.Rule == nil {
+		t.Fatal("expected rule on Settings category")
+	}
+
+	if settings.Rule.Effect != schema.EffectEnable {
+		t.Errorf("expected ENABLE effect, got %q", settings.Rule.Effect)
+	}
+}
+
+type CategoryRuleDisable struct {
+	Locked bool   `json:"locked"`
+	Data   string `json:"data" form:"category=Edit;disableIf=locked:true"`
+}
+
+func TestGenerateUISchema_CategoryRule_Disable(t *testing.T) {
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(CategoryRuleDisable{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var edit *schema.UISchemaElement
+	for _, el := range ui.Elements {
+		if el.Label == "Edit" {
+			edit = el
+			break
+		}
+	}
+
+	if edit == nil {
+		t.Fatal("expected Edit category")
+	}
+
+	if edit.Rule == nil {
+		t.Fatal("expected rule on Edit category")
+	}
+
+	if edit.Rule.Effect != schema.EffectDisable {
+		t.Errorf("expected DISABLE effect, got %q", edit.Rule.Effect)
+	}
+}
+
+func TestGenerateUISchema_CategoryRule_JSON(t *testing.T) {
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(CategoryRuleShow{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := json.MarshalIndent(ui, "", "  ")
+	if err != nil {
+		t.Fatalf("json marshal error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json unmarshal error: %v", err)
+	}
+
+	// Check the Address category has a rule in JSON.
+	elements := parsed["elements"].([]any)
+
+	var addressCat map[string]any
+	for _, el := range elements {
+		cat := el.(map[string]any)
+		if cat["label"] == "Address" {
+			addressCat = cat
+			break
+		}
+	}
+
+	if addressCat == nil {
+		t.Fatal("expected Address category in JSON")
+	}
+
+	ruleObj, ok := addressCat["rule"].(map[string]any)
+	if !ok {
+		t.Fatal("expected rule object on Address category")
+	}
+
+	if ruleObj["effect"] != "SHOW" {
+		t.Errorf("expected SHOW effect in JSON, got %v", ruleObj["effect"])
+	}
+}
+
+// --- Stage 11.2: i18n on Category ---
+
+type CategoryI18n struct {
+	Name  string `json:"name" form:"category=Personal;i18n=category.personal"`
+	Email string `json:"email" form:"category=Personal"`
+	Role  string `json:"role" form:"category=Work;i18n=category.work"`
+}
+
+func TestGenerateUISchema_CategoryI18n_Key(t *testing.T) {
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(CategoryI18n{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ui.Type != typeCategorization {
+		t.Fatalf("expected Categorization root, got %q", ui.Type)
+	}
+
+	var personal, work *schema.UISchemaElement
+	for _, el := range ui.Elements {
+		switch el.Label {
+		case "Personal":
+			personal = el
+		case "Work":
+			work = el
+		}
+	}
+
+	if personal == nil {
+		t.Fatal("expected Personal category")
+	}
+
+	if personal.I18n != "category.personal" {
+		t.Errorf("expected i18n 'category.personal', got %q", personal.I18n)
+	}
+
+	if work == nil {
+		t.Fatal("expected Work category")
+	}
+
+	if work.I18n != "category.work" {
+		t.Errorf("expected i18n 'category.work', got %q", work.I18n)
+	}
+
+	// i18n hint should be consumed from child options.
+	for _, cat := range ui.Elements {
+		for _, el := range cat.Elements {
+			if el.Options != nil {
+				if _, ok := el.Options["categoryI18n"]; ok {
+					t.Error("categoryI18n hint should be consumed")
+				}
+			}
+		}
+	}
+}
+
+func TestGenerateUISchema_CategoryI18n_NoI18n(t *testing.T) {
+	// Existing CategorizedForm has no i18n — should work without regression.
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(CategorizedForm{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, cat := range ui.Elements {
+		if cat.I18n != "" {
+			t.Errorf("category %q should have no i18n, got %q", cat.Label, cat.I18n)
+		}
+	}
+}
+
+func TestGenerateUISchema_CategoryI18n_Translator(t *testing.T) {
+	tr := schema.NewMapTranslator(map[string]map[string]string{
+		"uk": {
+			"category.personal": "Особисте",
+			"category.work":     "Робота",
+		},
+	})
+
+	opts := schema.Options{
+		Draft:      "draft-07",
+		Translator: tr,
+		Locale:     "uk",
+	}
+
+	ui, err := parser.GenerateUISchemaWithOptions(CategoryI18n{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var personal, work *schema.UISchemaElement
+	for _, el := range ui.Elements {
+		switch el.I18n {
+		case "category.personal":
+			personal = el
+		case "category.work":
+			work = el
+		}
+	}
+
+	if personal == nil {
+		t.Fatal("expected Personal category")
+	}
+
+	if personal.Label != "Особисте" {
+		t.Errorf("expected translated label 'Особисте', got %q", personal.Label)
+	}
+
+	if work == nil {
+		t.Fatal("expected Work category")
+	}
+
+	if work.Label != "Робота" {
+		t.Errorf("expected translated label 'Робота', got %q", work.Label)
+	}
+}
+
+func TestGenerateUISchema_CategoryI18n_JSON(t *testing.T) {
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(CategoryI18n{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := json.MarshalIndent(ui, "", "  ")
+	if err != nil {
+		t.Fatalf("json marshal error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json unmarshal error: %v", err)
+	}
+
+	elements := parsed["elements"].([]any)
+
+	var personalCat map[string]any
+	for _, el := range elements {
+		cat := el.(map[string]any)
+		if cat["label"] == "Personal" {
+			personalCat = cat
+			break
+		}
+	}
+
+	if personalCat == nil {
+		t.Fatal("expected Personal category in JSON")
+	}
+
+	if personalCat["i18n"] != "category.personal" {
+		t.Errorf("expected i18n 'category.personal' in JSON, got %v", personalCat["i18n"])
+	}
+}
+
+type CategoryI18nWithRule struct {
+	Active bool   `json:"active"`
+	Name   string `json:"name" form:"category=Profile;i18n=category.profile;visibleIf=active:true"`
+}
+
+func TestGenerateUISchema_CategoryI18n_WithRule(t *testing.T) {
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(CategoryI18nWithRule{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var profile *schema.UISchemaElement
+	for _, el := range ui.Elements {
+		if el.I18n == "category.profile" {
+			profile = el
+			break
+		}
+	}
+
+	if profile == nil {
+		t.Fatal("expected Profile category")
+	}
+
+	if profile.I18n != "category.profile" {
+		t.Errorf("expected i18n 'category.profile', got %q", profile.I18n)
+	}
+
+	if profile.Rule == nil {
+		t.Fatal("expected rule on Profile category")
+	}
+
+	if profile.Rule.Effect != schema.EffectShow {
+		t.Errorf("expected SHOW effect, got %q", profile.Rule.Effect)
+	}
+}
+
+// --- Stage 11.3: Rules on nested structs (Group) ---
+
+type GroupRuleAddress struct {
+	Street string `json:"street"`
+	City   string `json:"city"`
+}
+
+type GroupRuleForm struct {
+	ProvideAddress bool             `json:"provideAddress"`
+	Name           string           `json:"name"`
+	Address        GroupRuleAddress `json:"address" visibleIf:"provideAddress=true"`
+}
+
+func TestGenerateUISchema_GroupRule_VisibleIf(t *testing.T) {
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(GroupRuleForm{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Root is VerticalLayout with: Control(provideAddress), Control(name), Group(Address).
+	if ui.Type != "VerticalLayout" {
+		t.Fatalf("expected VerticalLayout, got %q", ui.Type)
+	}
+
+	if len(ui.Elements) != 3 {
+		t.Fatalf("expected 3 elements, got %d", len(ui.Elements))
+	}
+
+	group := ui.Elements[2]
+	if group.Type != "Group" {
+		t.Fatalf("expected Group, got %q", group.Type)
+	}
+
+	if group.Rule == nil {
+		t.Fatal("expected rule on Group")
+	}
+
+	if group.Rule.Effect != schema.EffectShow {
+		t.Errorf("expected SHOW effect, got %q", group.Rule.Effect)
+	}
+
+	if group.Rule.Condition.Scope != "#/properties/provideAddress" {
+		t.Errorf("expected scope '#/properties/provideAddress', got %q", group.Rule.Condition.Scope)
+	}
+
+	if group.Rule.Condition.Schema.Const != true {
+		t.Errorf("expected const true, got %v", group.Rule.Condition.Schema.Const)
+	}
+}
+
+type GroupRuleHideForm struct {
+	IsAdmin bool             `json:"isAdmin"`
+	Secret  GroupRuleAddress `json:"secret" hideIf:"isAdmin=false"`
+}
+
+func TestGenerateUISchema_GroupRule_HideIf(t *testing.T) {
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(GroupRuleHideForm{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	group := ui.Elements[1]
+	if group.Type != "Group" {
+		t.Fatalf("expected Group, got %q", group.Type)
+	}
+
+	if group.Rule == nil {
+		t.Fatal("expected rule on Group")
+	}
+
+	if group.Rule.Effect != schema.EffectHide {
+		t.Errorf("expected HIDE effect, got %q", group.Rule.Effect)
+	}
+
+	if group.Rule.Condition.Schema.Const != false {
+		t.Errorf("expected const false, got %v", group.Rule.Condition.Schema.Const)
+	}
+}
+
+type GroupRuleEnableForm struct {
+	Active  bool             `json:"active"`
+	Details GroupRuleAddress `json:"details" enableIf:"active=true"`
+}
+
+func TestGenerateUISchema_GroupRule_EnableIf(t *testing.T) {
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(GroupRuleEnableForm{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	group := ui.Elements[1]
+
+	if group.Rule == nil {
+		t.Fatal("expected rule on Group")
+	}
+
+	if group.Rule.Effect != schema.EffectEnable {
+		t.Errorf("expected ENABLE effect, got %q", group.Rule.Effect)
+	}
+}
+
+type GroupRuleDisableForm struct {
+	Locked bool             `json:"locked"`
+	Config GroupRuleAddress `json:"config" disableIf:"locked=true"`
+}
+
+func TestGenerateUISchema_GroupRule_DisableIf(t *testing.T) {
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(GroupRuleDisableForm{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	group := ui.Elements[1]
+
+	if group.Rule == nil {
+		t.Fatal("expected rule on Group")
+	}
+
+	if group.Rule.Effect != schema.EffectDisable {
+		t.Errorf("expected DISABLE effect, got %q", group.Rule.Effect)
+	}
+}
+
+type GroupNoRuleForm struct {
+	Name    string           `json:"name"`
+	Address GroupRuleAddress `json:"address"`
+}
+
+func TestGenerateUISchema_GroupRule_NoRegression(t *testing.T) {
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(GroupNoRuleForm{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	group := ui.Elements[1]
+	if group.Type != "Group" {
+		t.Fatalf("expected Group, got %q", group.Type)
+	}
+
+	if group.Rule != nil {
+		t.Errorf("expected no rule on Group without rule tags, got %+v", group.Rule)
+	}
+}
+
+func TestGenerateUISchema_GroupRule_JSON(t *testing.T) {
+	opts := schema.DefaultOptions()
+
+	ui, err := parser.GenerateUISchemaWithOptions(GroupRuleForm{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := json.MarshalIndent(ui, "", "  ")
+	if err != nil {
+		t.Fatalf("json marshal error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json unmarshal error: %v", err)
+	}
+
+	elements := parsed["elements"].([]any)
+	groupObj := elements[2].(map[string]any)
+
+	if groupObj["type"] != "Group" {
+		t.Fatalf("expected Group in JSON, got %v", groupObj["type"])
+	}
+
+	ruleObj, ok := groupObj["rule"].(map[string]any)
+	if !ok {
+		t.Fatal("expected rule on Group in JSON")
+	}
+
+	if ruleObj["effect"] != "SHOW" {
+		t.Errorf("expected SHOW in JSON, got %v", ruleObj["effect"])
 	}
 }

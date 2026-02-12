@@ -382,3 +382,137 @@ func TestParseFormTag_CategoryWithOtherOptions(t *testing.T) {
 		t.Error("expected readonly to be true")
 	}
 }
+
+func TestParseFormTag_VisibleIf(t *testing.T) {
+	opts := schema.ParseFormTag("category=Address;visibleIf=provideAddress:true")
+	if opts.Category != "Address" {
+		t.Errorf("expected category 'Address', got %q", opts.Category)
+	}
+
+	if opts.VisibleIf != "provideAddress:true" {
+		t.Errorf("expected visibleIf 'provideAddress:true', got %q", opts.VisibleIf)
+	}
+}
+
+func TestParseFormTag_HideIf(t *testing.T) {
+	opts := schema.ParseFormTag("category=Secret;hideIf=role:admin")
+	if opts.HideIf != "role:admin" {
+		t.Errorf("expected hideIf 'role:admin', got %q", opts.HideIf)
+	}
+}
+
+func TestParseFormTag_EnableIf(t *testing.T) {
+	opts := schema.ParseFormTag("enableIf=active:true")
+	if opts.EnableIf != "active:true" {
+		t.Errorf("expected enableIf 'active:true', got %q", opts.EnableIf)
+	}
+}
+
+func TestParseFormTag_DisableIf(t *testing.T) {
+	opts := schema.ParseFormTag("disableIf=locked:true")
+	if opts.DisableIf != "locked:true" {
+		t.Errorf("expected disableIf 'locked:true', got %q", opts.DisableIf)
+	}
+}
+
+func TestParseFormRuleExpression_Show(t *testing.T) {
+	rule := schema.ParseFormRuleExpression("provideAddress:true", schema.EffectShow)
+	if rule == nil {
+		t.Fatal("expected non-nil rule")
+	}
+
+	if rule.Effect != schema.EffectShow {
+		t.Errorf("expected effect SHOW, got %q", rule.Effect)
+	}
+
+	if rule.Condition.Scope != "#/properties/provideAddress" {
+		t.Errorf("expected scope '#/properties/provideAddress', got %q", rule.Condition.Scope)
+	}
+
+	if rule.Condition.Schema.Const != true {
+		t.Errorf("expected const true, got %v", rule.Condition.Schema.Const)
+	}
+}
+
+func TestParseFormRuleExpression_Hide(t *testing.T) {
+	rule := schema.ParseFormRuleExpression("status:draft", schema.EffectHide)
+	if rule == nil {
+		t.Fatal("expected non-nil rule")
+	}
+
+	if rule.Effect != schema.EffectHide {
+		t.Errorf("expected effect HIDE, got %q", rule.Effect)
+	}
+
+	if rule.Condition.Schema.Const != "draft" {
+		t.Errorf("expected const 'draft', got %v", rule.Condition.Schema.Const)
+	}
+}
+
+func TestParseFormRuleExpression_Empty(t *testing.T) {
+	rule := schema.ParseFormRuleExpression("", schema.EffectShow)
+	if rule != nil {
+		t.Error("expected nil rule for empty expression")
+	}
+}
+
+func TestParseFormTag_I18n(t *testing.T) {
+	opts := schema.ParseFormTag("category=Personal;i18n=category.personal")
+	if opts.Category != "Personal" {
+		t.Errorf("expected category 'Personal', got %q", opts.Category)
+	}
+
+	if opts.I18nKey != "category.personal" {
+		t.Errorf("expected i18n key 'category.personal', got %q", opts.I18nKey)
+	}
+}
+
+func TestParseFormTag_I18nAlone(t *testing.T) {
+	opts := schema.ParseFormTag("i18n=some.key")
+	if opts.I18nKey != "some.key" {
+		t.Errorf("expected i18n key 'some.key', got %q", opts.I18nKey)
+	}
+}
+
+func TestUISchemaElement_I18nJSON(t *testing.T) {
+	el := &schema.UISchemaElement{
+		Type:  "Category",
+		Label: "Personal",
+		I18n:  "category.personal",
+	}
+
+	data, err := json.Marshal(el)
+	if err != nil {
+		t.Fatalf("json marshal error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json unmarshal error: %v", err)
+	}
+
+	if parsed["i18n"] != "category.personal" {
+		t.Errorf("expected i18n 'category.personal' in JSON, got %v", parsed["i18n"])
+	}
+}
+
+func TestUISchemaElement_I18nOmitEmpty(t *testing.T) {
+	el := &schema.UISchemaElement{
+		Type:  "Category",
+		Label: "Personal",
+	}
+
+	data, err := json.Marshal(el)
+	if err != nil {
+		t.Fatalf("json marshal error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json unmarshal error: %v", err)
+	}
+
+	if _, ok := parsed["i18n"]; ok {
+		t.Error("expected i18n to be omitted when empty")
+	}
+}
