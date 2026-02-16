@@ -399,6 +399,9 @@ func buildUIElements(t reflect.Type, val reflect.Value, basePath string, parent 
 			group.Elements = groupHorizontalElements(group.Elements)
 			// Apply rule from the struct field tags to the Group element.
 			applyRule(group, tags)
+			// Propagate category, category rule & i18n from the form tag
+			// so nested structs are placed into the correct Category.
+			applyGroupCategoryOptions(group, formOpts)
 			parent.Elements = append(parent.Elements, group)
 
 			continue
@@ -608,6 +611,21 @@ func groupHorizontalElements(elements []*schema.UISchemaElement) []*schema.UISch
 	flush()
 
 	return result
+}
+
+// applyGroupCategoryOptions propagates category, category-rule and
+// category-i18n hints from the form tag of a struct field onto its
+// Group element. This ensures nested structs with
+// form:"category=General" are placed into the correct category
+// instead of falling into "Other".
+func applyGroupCategoryOptions(group *schema.UISchemaElement, formOpts schema.FormOptions) {
+	if formOpts.Category != "" {
+		ensureOptions(group)
+		group.Options["category"] = formOpts.Category
+	}
+
+	applyCategoryRuleOptions(group, formOpts)
+	applyCategoryI18nOption(group, formOpts)
 }
 
 // buildCategorization groups elements by their category option
