@@ -41,9 +41,11 @@
    - [Custom Renderers](#custom-renderers)
    - [Roles and Permissions](#roles-and-permissions)
    - [Categorization (Tabs)](#categorization-tabs)
+   - [Nested Structs in Categories](#nested-structs-in-categories)
    - [Conditional Visibility](#conditional-visibility)
    - [Validation Constraints](#validation-constraints)
    - [HorizontalLayout](#horizontallayout)
+   - [Named Layout Groups](#named-layout-groups)
    - [Rules on Category](#rules-on-category)
    - [i18n on Category](#i18n-on-category)
    - [Rules on Group (Nested Structs)](#rules-on-group-nested-structs)
@@ -296,8 +298,9 @@ type FormOptions struct {
     Readonly  bool   // Read-only field
     Multiline bool   // Multi-line text field
     Category  string // Category (tab) name
-    Layout    string // Layout override ("horizontal")
-    VisibleIf string // SHOW rule for Category/Group ("field:value")
+    Layout      string // Layout override ("horizontal")
+    LayoutGroup string // Named group for combining non-adjacent fields
+    VisibleIf   string // SHOW rule for Category/Group ("field:value")
     HideIf    string // HIDE rule for Category/Group
     EnableIf  string // ENABLE rule for Category/Group
     DisableIf string // DISABLE rule for Category/Group
@@ -323,6 +326,7 @@ form:"multiline"
 form:"category=Personal Data"
 form:"label=Name;readonly;category=Profile"
 form:"layout=horizontal"
+form:"layout=horizontal:contact"
 form:"category=Address;visibleIf=provideAddress:true"
 form:"category=Personal;i18n=category.personal"
 ```
@@ -523,13 +527,14 @@ Same as above, with the ability to specify options (i18n, renderers, permissions
 7. For UI Schema:
    - `form:"hidden"` or `AccessHidden` → field is excluded.
    - `AccessReadOnly` → `options.readonly = true`.
-   - Nested structs → `Group` with the field name as label.
+   - Nested structs → `Group` with the field name as label. If the struct field has `form:"category=..."`, the Group is placed into the corresponding category.
    - Categories → automatic wrapping into `Categorization` → `Category`.
    - Rules are applied by priority: `visibleIf` → `hideIf` → `enableIf` → `disableIf`.
    - Group rules: `visibleIf`/`hideIf`/`enableIf`/`disableIf` tags on a struct field apply to the corresponding `Group`.
    - Category rules: `visibleIf`/`hideIf`/`enableIf`/`disableIf` directives in the `form` tag apply to the `Category`.
    - Category i18n: `i18n=key` directive in the `form` tag sets the `i18n` field and translates the label via `Translator`.
    - `layout=horizontal`: adjacent fields with the same `layout=horizontal` are grouped into a `HorizontalLayout`.
+   - `layout=horizontal:groupName`: non-adjacent fields with the same named group are combined into a single `HorizontalLayout` at the first-occurrence position. Single-element named groups remain as plain Controls.
 8. Validation constraints (`minLength`, `maxLength`, `minimum`, `maximum`, `pattern`, `description`) from struct tags are written to JSON Schema.
 
 ---
@@ -745,7 +750,8 @@ Directives are separated by `;`:
 | `readonly` | Read only | `form:"readonly"` |
 | `multiline` | Multi-line field | `form:"multiline"` |
 | `category=Name` | Category (tab) | `form:"category=Personal"` |
-| `layout=horizontal` | Layout override | `form:"layout=horizontal"` |
+| `layout=horizontal` | Layout override (adjacent fields) | `form:"layout=horizontal"` |
+| `layout=horizontal:groupName` | Named layout group (non-adjacent fields) | `form:"layout=horizontal:contact"` |
 | `visibleIf=field:value` | SHOW rule for Category | `form:"category=Address;visibleIf=provideAddress:true"` |
 | `hideIf=field:value` | HIDE rule for Category | `form:"category=Secret;hideIf=role:admin"` |
 | `enableIf=field:value` | ENABLE rule for Category | `form:"category=Settings;enableIf=active:true"` |
@@ -1110,6 +1116,61 @@ Result:
 
 ---
 
+### Nested Structs in Categories
+
+When a struct field has `form:"category=..."`, the corresponding `Group` is placed into the specified category instead of "Other":
+
+```go
+type DrawSetup struct {
+    Numbers int `json:"numbers"`
+    Bonus   int `json:"bonus"`
+}
+
+type GameConfig struct {
+    GameName  string    `json:"game_name" form:"label=Game name;category=General"`
+    DrawSetup DrawSetup `json:"draw_setup" form:"label=Draw setup;category=General"`
+    Logic     string    `json:"logic" form:"label=Logic;category=Logic"`
+}
+
+ui, _ := parser.GenerateUISchema(GameConfig{})
+```
+
+Result — `DrawSetup` is rendered as a `Group` inside the "General" category:
+
+```json
+{
+  "type": "Categorization",
+  "elements": [
+    {
+      "type": "Category",
+      "label": "General",
+      "elements": [
+        { "type": "Control", "scope": "#/properties/game_name", "label": "Game name" },
+        {
+          "type": "Group",
+          "label": "Draw setup",
+          "elements": [
+            { "type": "Control", "scope": "#/properties/draw_setup/properties/numbers" },
+            { "type": "Control", "scope": "#/properties/draw_setup/properties/bonus" }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Category",
+      "label": "Logic",
+      "elements": [
+        { "type": "Control", "scope": "#/properties/logic", "label": "Logic" }
+      ]
+    }
+  ]
+}
+```
+
+> **Note:** Without `form:"category=..."` on the struct field, the `Group` falls into the "Other" category. Rules (`visibleIf`, `hideIf`, etc.) and `i18n` in the `form` tag also work for nested structs in categories.
+
+---
+
 ### Conditional Visibility
 
 ```go
@@ -1216,6 +1277,55 @@ Resulting UI Schema:
   ]
 }
 ```
+
+---
+
+### Named Layout Groups
+
+The syntax `form:"layout=horizontal:groupName"` allows combining **non-adjacent** fields with the same group name into a single `HorizontalLayout`. Fields are grouped at the first-occurrence position of the group.
+
+If a named group contains only a single element, it remains a plain `Control` without being wrapped in a `HorizontalLayout`.
+
+The `layout` and `layoutGroup` options are removed from elements after grouping.
+
+```go
+type ContactForm struct {
+    FirstName  string `json:"first_name" form:"layout=horizontal:name"`
+    Email      string `json:"email" form:"layout=horizontal:contact"`
+    LastName   string `json:"last_name" form:"layout=horizontal:name"`
+    Phone      string `json:"phone" form:"layout=horizontal:contact"`
+    MiddleName string `json:"middle_name"`
+}
+
+ui, _ := parser.GenerateUISchema(ContactForm{})
+```
+
+Resulting UI Schema — `first_name` and `last_name` (group `name`) and `email` and `phone` (group `contact`) are combined into `HorizontalLayout` at the first-occurrence position of each group:
+
+```json
+{
+  "type": "VerticalLayout",
+  "elements": [
+    {
+      "type": "HorizontalLayout",
+      "elements": [
+        { "type": "Control", "scope": "#/properties/first_name" },
+        { "type": "Control", "scope": "#/properties/last_name" }
+      ]
+    },
+    {
+      "type": "HorizontalLayout",
+      "elements": [
+        { "type": "Control", "scope": "#/properties/email" },
+        { "type": "Control", "scope": "#/properties/phone" }
+      ]
+    },
+    { "type": "Control", "scope": "#/properties/middle_name" }
+  ]
+}
+```
+
+> **Note:** Unnamed `layout=horizontal` (without `:groupName`) still works as before — grouping only adjacent fields.
 
 ---
 
