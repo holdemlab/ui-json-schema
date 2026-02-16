@@ -1940,3 +1940,198 @@ func TestGenerateUISchema_GroupRule_JSON(t *testing.T) {
 		t.Errorf("expected SHOW in JSON, got %v", ruleObj["effect"])
 	}
 }
+
+// --- Group in Category ---
+
+type NestedGroupDrawSetup struct {
+	Numbers int `json:"numbers"`
+	Bonus   int `json:"bonus"`
+}
+
+type GroupCategoryForm struct {
+	GameName  string               `json:"game_name" form:"label=Game name;category=General"`
+	DrawSetup NestedGroupDrawSetup `json:"draw_setup" form:"label=Draw setup;category=General"`
+	Logic     string               `json:"logic" form:"label=Logic;category=Logic"`
+}
+
+func TestGenerateUISchema_GroupInCategory(t *testing.T) {
+	ui, err := parser.GenerateUISchema(GroupCategoryForm{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ui.Type != "Categorization" {
+		t.Fatalf("expected Categorization, got %q", ui.Type)
+	}
+
+	// Should have 2 categories: General and Logic (no "Other").
+	if len(ui.Elements) != 2 {
+		t.Fatalf("expected 2 categories, got %d", len(ui.Elements))
+	}
+
+	general := ui.Elements[0]
+	if general.Label != "General" {
+		t.Errorf("expected first category 'General', got %q", general.Label)
+	}
+
+	// General should have: Control(game_name) + Group(draw_setup).
+	if len(general.Elements) != 2 {
+		t.Fatalf("expected 2 elements in General, got %d", len(general.Elements))
+	}
+
+	if general.Elements[0].Type != "Control" {
+		t.Errorf("expected first element Control, got %q", general.Elements[0].Type)
+	}
+
+	group := general.Elements[1]
+	if group.Type != "Group" {
+		t.Errorf("expected second element Group, got %q", group.Type)
+	}
+
+	if group.Label != "Draw setup" {
+		t.Errorf("expected Group label 'Draw setup', got %q", group.Label)
+	}
+
+	// Group should not leak 'category' option.
+	if group.Options != nil {
+		if _, has := group.Options["category"]; has {
+			t.Error("category option should be consumed, not present on Group")
+		}
+	}
+
+	logic := ui.Elements[1]
+	if logic.Label != "Logic" {
+		t.Errorf("expected second category 'Logic', got %q", logic.Label)
+	}
+}
+
+func TestGenerateUISchema_GroupInCategory_NoCategory_FallsToOther(t *testing.T) {
+	type Form struct {
+		Name    string               `json:"name" form:"category=General"`
+		Details NestedGroupDrawSetup `json:"details" form:"label=Details"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ui.Type != "Categorization" {
+		t.Fatalf("expected Categorization, got %q", ui.Type)
+	}
+
+	// Should have 2 categories: General and Other.
+	if len(ui.Elements) != 2 {
+		t.Fatalf("expected 2 categories, got %d", len(ui.Elements))
+	}
+
+	other := ui.Elements[1]
+	if other.Label != "Other" {
+		t.Errorf("expected 'Other', got %q", other.Label)
+	}
+
+	if other.Elements[0].Type != "Group" {
+		t.Errorf("expected Group in Other, got %q", other.Elements[0].Type)
+	}
+}
+
+type GroupCategoryRuleForm struct {
+	Provide   bool                 `json:"provide" form:"category=General"`
+	DrawSetup NestedGroupDrawSetup `json:"draw_setup" form:"label=Draw setup;category=Setup;visibleIf=provide:true"`
+}
+
+func TestGenerateUISchema_GroupInCategory_WithRule(t *testing.T) {
+	ui, err := parser.GenerateUISchema(GroupCategoryRuleForm{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ui.Type != "Categorization" {
+		t.Fatalf("expected Categorization, got %q", ui.Type)
+	}
+
+	setup := ui.Elements[1]
+	if setup.Label != "Setup" {
+		t.Errorf("expected 'Setup', got %q", setup.Label)
+	}
+
+	if setup.Rule == nil {
+		t.Fatal("expected rule on Setup category")
+	}
+
+	if setup.Rule.Effect != schema.EffectShow {
+		t.Errorf("expected SHOW, got %q", setup.Rule.Effect)
+	}
+
+	if setup.Rule.Condition.Scope != "#/properties/provide" {
+		t.Errorf("expected scope '#/properties/provide', got %q", setup.Rule.Condition.Scope)
+	}
+}
+
+type GroupCategoryI18nForm struct {
+	Name    string               `json:"name" form:"category=Personal;i18n=cat.personal"`
+	Details NestedGroupDrawSetup `json:"details" form:"label=Draw;category=Setup;i18n=cat.setup"`
+}
+
+func TestGenerateUISchema_GroupInCategory_WithI18n(t *testing.T) {
+	opts := schema.Options{
+		Translator: schema.NewMapTranslator(map[string]map[string]string{
+			"en": {
+				"cat.personal": "My Personal",
+				"cat.setup":    "My Setup",
+			},
+		}),
+		Locale: "en",
+	}
+
+	ui, err := parser.GenerateUISchemaWithOptions(GroupCategoryI18nForm{}, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	setup := ui.Elements[1]
+	if setup.I18n != "cat.setup" {
+		t.Errorf("expected i18n 'cat.setup', got %q", setup.I18n)
+	}
+
+	if setup.Label != "My Setup" {
+		t.Errorf("expected translated label 'My Setup', got %q", setup.Label)
+	}
+}
+
+func TestGenerateUISchema_GroupInCategory_JSON(t *testing.T) {
+	ui, err := parser.GenerateUISchema(GroupCategoryForm{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := json.MarshalIndent(ui, "", "  ")
+	if err != nil {
+		t.Fatalf("json marshal error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json unmarshal error: %v", err)
+	}
+
+	cats := parsed["elements"].([]any)
+	general := cats[0].(map[string]any)
+
+	elems := general["elements"].([]any)
+	groupObj := elems[1].(map[string]any)
+
+	if groupObj["type"] != "Group" {
+		t.Errorf("expected Group in JSON, got %v", groupObj["type"])
+	}
+
+	if groupObj["label"] != "Draw setup" {
+		t.Errorf("expected 'Draw setup' in JSON, got %v", groupObj["label"])
+	}
+
+	// Should have nested controls.
+	groupElems := groupObj["elements"].([]any)
+	if len(groupElems) != 2 {
+		t.Errorf("expected 2 elements in Group, got %d", len(groupElems))
+	}
+}
