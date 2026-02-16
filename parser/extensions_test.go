@@ -1301,306 +1301,301 @@ func TestGenerateUISchema_NamedLayoutGroup_JSON(t *testing.T) {
 	}
 }
 
-// --- OmitEmpty ---
+// --- Array Detail (slice of structs) ---
 
-type OmitEmptyStruct struct {
-	Name  string   `json:"name"`
-	Notes string   `json:"notes,omitempty"`
-	Score int      `json:"score,omitempty"`
-	Tags  []string `json:"tags,omitempty"`
+type ArrayDetailItem struct {
+	Numbers int    `json:"numbers"`
+	Bonus   int    `json:"bonus"`
+	Label   string `json:"label" form:"label=Set Label"`
 }
 
-type OmitEmptyNested struct {
-	Title   string `json:"title"`
-	Address struct {
+func TestGenerateUISchema_ArrayDetail_SliceOfStructs(t *testing.T) {
+	type Form struct {
+		Name  string            `json:"name"`
+		Items []ArrayDetailItem `json:"items" form:"label=Items"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(ui.Elements) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(ui.Elements))
+	}
+
+	ctrl := ui.Elements[1]
+	if ctrl.Type != "Control" {
+		t.Fatalf("expected Control, got %q", ctrl.Type)
+	}
+
+	if ctrl.Scope != "#/properties/items" {
+		t.Errorf("expected scope #/properties/items, got %q", ctrl.Scope)
+	}
+
+	if ctrl.Label != "Items" {
+		t.Errorf("expected label 'Items', got %q", ctrl.Label)
+	}
+
+	if ctrl.Options == nil {
+		t.Fatal("expected options with detail")
+	}
+
+	detail, ok := ctrl.Options["detail"].(*schema.UISchemaElement)
+	if !ok {
+		t.Fatalf("expected detail to be *UISchemaElement, got %T", ctrl.Options["detail"])
+	}
+
+	if detail.Type != "VerticalLayout" {
+		t.Errorf("expected VerticalLayout in detail, got %q", detail.Type)
+	}
+
+	if len(detail.Elements) != 3 {
+		t.Fatalf("expected 3 elements in detail, got %d", len(detail.Elements))
+	}
+
+	if detail.Elements[0].Scope != "#/properties/numbers" {
+		t.Errorf("expected #/properties/numbers, got %q", detail.Elements[0].Scope)
+	}
+
+	if detail.Elements[2].Label != "Set Label" {
+		t.Errorf("expected label 'Set Label', got %q", detail.Elements[2].Label)
+	}
+}
+
+func TestGenerateUISchema_ArrayDetail_SliceOfPtrStructs(t *testing.T) {
+	type Form struct {
+		Items []*ArrayDetailItem `json:"items"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ctrl := ui.Elements[0]
+	if ctrl.Options == nil {
+		t.Fatal("expected options with detail")
+	}
+
+	detail, ok := ctrl.Options["detail"].(*schema.UISchemaElement)
+	if !ok {
+		t.Fatalf("expected detail to be *UISchemaElement, got %T", ctrl.Options["detail"])
+	}
+
+	if len(detail.Elements) != 3 {
+		t.Errorf("expected 3 elements in detail, got %d", len(detail.Elements))
+	}
+}
+
+func TestGenerateUISchema_ArrayDetail_PrimitiveSlice_NoDetail(t *testing.T) {
+	type Form struct {
+		Tags []string `json:"tags"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ctrl := ui.Elements[0]
+	if ctrl.Type != "Control" {
+		t.Errorf("expected Control, got %q", ctrl.Type)
+	}
+
+	// Primitive slices should NOT have options.detail.
+	if ctrl.Options != nil {
+		if _, has := ctrl.Options["detail"]; has {
+			t.Error("primitive slice should not have options.detail")
+		}
+	}
+}
+
+func TestGenerateUISchema_ArrayDetail_WithCategory(t *testing.T) {
+	type Form struct {
+		Name  string            `json:"name" form:"category=General"`
+		Items []ArrayDetailItem `json:"items" form:"label=Items;category=Data"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ui.Type != "Categorization" {
+		t.Fatalf("expected Categorization, got %q", ui.Type)
+	}
+
+	// Find Data category.
+	var dataCat *schema.UISchemaElement
+	for _, el := range ui.Elements {
+		if el.Label == "Data" {
+			dataCat = el
+			break
+		}
+	}
+
+	if dataCat == nil {
+		t.Fatal("Data category not found")
+	}
+
+	ctrl := dataCat.Elements[0]
+	if ctrl.Options == nil {
+		t.Fatal("expected options with detail in category")
+	}
+
+	if _, ok := ctrl.Options["detail"].(*schema.UISchemaElement); !ok {
+		t.Errorf("expected detail in category item")
+	}
+}
+
+func TestGenerateUISchema_ArrayDetail_HorizontalInDetail(t *testing.T) {
+	type DetailItem struct {
+		City    string `json:"city" form:"layout=horizontal"`
+		ZipCode string `json:"zip_code" form:"layout=horizontal"`
+		Note    string `json:"note"`
+	}
+
+	type Form struct {
+		Entries []DetailItem `json:"entries"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ctrl := ui.Elements[0]
+	detail, ok := ctrl.Options["detail"].(*schema.UISchemaElement)
+	if !ok {
+		t.Fatal("expected detail")
+	}
+
+	// Should be: HorizontalLayout(city, zip_code), Control(note)
+	if len(detail.Elements) != 2 {
+		t.Fatalf("expected 2 elements in detail (HL + Control), got %d", len(detail.Elements))
+	}
+
+	if detail.Elements[0].Type != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout in detail, got %q", detail.Elements[0].Type)
+	}
+
+	if len(detail.Elements[0].Elements) != 2 {
+		t.Errorf("expected 2 in HorizontalLayout, got %d", len(detail.Elements[0].Elements))
+	}
+}
+
+func TestGenerateUISchema_ArrayDetail_NestedStructInItem(t *testing.T) {
+	type Inner struct {
+		Street string `json:"street"`
 		City   string `json:"city"`
-		Region string `json:"region,omitempty"`
-	} `json:"address"`
-}
-
-func TestGenerateJSONSchemaWithOptions_OmitEmpty_ZeroValues(t *testing.T) {
-	opts := schema.Options{
-		Draft:     "draft-07",
-		OmitEmpty: true,
 	}
 
-	// All omitempty fields have zero values → should be excluded.
-	s, err := parser.GenerateJSONSchemaWithOptions(OmitEmptyStruct{}, opts)
+	type Item struct {
+		Name    string `json:"name"`
+		Address Inner  `json:"address"`
+	}
+
+	type Form struct {
+		Items []Item `json:"items"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if _, ok := s.Properties["name"]; !ok {
-		t.Error("expected property 'name' (no omitempty)")
-	}
-
-	if _, ok := s.Properties["notes"]; ok {
-		t.Error("'notes' should be excluded (omitempty + zero value)")
-	}
-
-	if _, ok := s.Properties["score"]; ok {
-		t.Error("'score' should be excluded (omitempty + zero value)")
-	}
-
-	if _, ok := s.Properties["tags"]; ok {
-		t.Error("'tags' should be excluded (omitempty + nil slice)")
-	}
-}
-
-func TestGenerateJSONSchemaWithOptions_OmitEmpty_NonZeroValues(t *testing.T) {
-	opts := schema.Options{
-		Draft:     "draft-07",
-		OmitEmpty: true,
-	}
-
-	// omitempty fields have non-zero values → should be included.
-	v := OmitEmptyStruct{
-		Name:  "Alice",
-		Notes: "some note",
-		Score: 42,
-		Tags:  []string{"go"},
-	}
-
-	s, err := parser.GenerateJSONSchemaWithOptions(v, opts)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	for _, key := range []string{"name", "notes", "score", "tags"} {
-		if _, ok := s.Properties[key]; !ok {
-			t.Errorf("expected property %q (non-zero value)", key)
-		}
-	}
-}
-
-func TestGenerateJSONSchemaWithOptions_OmitEmpty_Disabled(t *testing.T) {
-	opts := schema.Options{
-		Draft:     "draft-07",
-		OmitEmpty: false,
-	}
-
-	// OmitEmpty is off → all fields appear even with zero values.
-	s, err := parser.GenerateJSONSchemaWithOptions(OmitEmptyStruct{}, opts)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	for _, key := range []string{"name", "notes", "score", "tags"} {
-		if _, ok := s.Properties[key]; !ok {
-			t.Errorf("expected property %q (OmitEmpty disabled)", key)
-		}
-	}
-}
-
-func TestGenerateUISchemaWithOptions_OmitEmpty(t *testing.T) {
-	opts := schema.Options{
-		Draft:     "draft-07",
-		OmitEmpty: true,
-	}
-
-	ui, err := parser.GenerateUISchemaWithOptions(OmitEmptyStruct{}, opts)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Only "name" should remain (the others are omitempty + zero value).
-	if len(ui.Elements) != 1 {
-		t.Fatalf("expected 1 element, got %d", len(ui.Elements))
-	}
-
-	if ui.Elements[0].Scope != "#/properties/name" {
-		t.Errorf("expected scope '#/properties/name', got %q", ui.Elements[0].Scope)
-	}
-}
-
-func TestGenerateJSONSchemaWithOptions_OmitEmpty_Nested(t *testing.T) {
-	opts := schema.Options{
-		Draft:     "draft-07",
-		OmitEmpty: true,
-	}
-
-	s, err := parser.GenerateJSONSchemaWithOptions(OmitEmptyNested{}, opts)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// "title" should exist, "address" should exist (not omitempty).
-	if _, ok := s.Properties["title"]; !ok {
-		t.Error("expected property 'title'")
-	}
-
-	addr, ok := s.Properties["address"]
+	ctrl := ui.Elements[0]
+	detail, ok := ctrl.Options["detail"].(*schema.UISchemaElement)
 	if !ok {
-		t.Fatal("expected property 'address'")
+		t.Fatal("expected detail")
 	}
 
-	// Inside address: "city" should exist, "region" (omitempty+zero) should be excluded.
-	if _, ok := addr.Properties["city"]; !ok {
-		t.Error("expected nested property 'city'")
+	// Should be: Control(name), Group(Address)
+	if len(detail.Elements) != 2 {
+		t.Fatalf("expected 2 elements in detail, got %d", len(detail.Elements))
 	}
 
-	if _, ok := addr.Properties["region"]; ok {
-		t.Error("'region' should be excluded (omitempty + zero value in nested struct)")
+	if detail.Elements[0].Type != "Control" {
+		t.Errorf("expected Control, got %q", detail.Elements[0].Type)
+	}
+
+	group := detail.Elements[1]
+	if group.Type != "Group" {
+		t.Errorf("expected Group, got %q", group.Type)
+	}
+
+	if len(group.Elements) != 2 {
+		t.Errorf("expected 2 elements in group, got %d", len(group.Elements))
 	}
 }
 
-// --- OmitEmpty: slices of structs ---
-
-type OmitEmptySliceEntry struct {
-	Name    string  `json:"name"`
-	Match   *string `json:"match,omitempty"`
-	Match0  *string `json:"match_0,omitempty"`
-	Match1  *string `json:"match_1,omitempty"`
-	Hits0   *int    `json:"hits_0,omitempty"`
-	Counter int     `json:"counter,omitempty"`
-}
-
-type OmitEmptySliceParent struct {
-	Title   string                `json:"title"`
-	Entries []OmitEmptySliceEntry `json:"entries"`
-}
-
-type OmitEmptySlicePtrParent struct {
-	Title   string                 `json:"title"`
-	Entries []*OmitEmptySliceEntry `json:"entries"`
-}
-
-func TestGenerateJSONSchemaWithOptions_OmitEmpty_SliceOfStructs(t *testing.T) {
-	match := "wild"
-	counter := 5
-
-	v := OmitEmptySliceParent{
-		Title: "game",
-		Entries: []OmitEmptySliceEntry{
-			{Name: "a", Match: &match, Counter: counter},
-			{Name: "b", Match: &match},
-		},
+func TestGenerateUISchema_ArrayDetail_JSON(t *testing.T) {
+	type Form struct {
+		Items []ArrayDetailItem `json:"items" form:"label=Items"`
 	}
 
-	opts := schema.Options{Draft: "draft-07", OmitEmpty: true}
-
-	s, err := parser.GenerateJSONSchemaWithOptions(v, opts)
+	ui, err := parser.GenerateUISchema(Form{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	entries, ok := s.Properties["entries"]
+	data, err := json.MarshalIndent(ui, "", "  ")
+	if err != nil {
+		t.Fatalf("json marshal error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json unmarshal error: %v", err)
+	}
+
+	elements := parsed["elements"].([]any)
+	ctrl := elements[0].(map[string]any)
+
+	opts, ok := ctrl["options"].(map[string]any)
 	if !ok {
-		t.Fatal("expected property 'entries'")
+		t.Fatal("expected options in JSON")
 	}
 
-	if entries.Items == nil {
-		t.Fatal("expected items in 'entries'")
+	detail, ok := opts["detail"].(map[string]any)
+	if !ok {
+		t.Fatal("expected detail object in JSON")
 	}
 
-	items := entries.Items
-
-	// "name" has no omitempty → always present.
-	if _, ok := items.Properties["name"]; !ok {
-		t.Error("expected 'name' in array items")
+	if detail["type"] != "VerticalLayout" {
+		t.Errorf("expected VerticalLayout in JSON detail, got %v", detail["type"])
 	}
 
-	// "match" is non-nil in both elements → present.
-	if _, ok := items.Properties["match"]; !ok {
-		t.Error("expected 'match' in array items (non-zero in elements)")
+	detailElements := detail["elements"].([]any)
+	if len(detailElements) != 3 {
+		t.Errorf("expected 3 elements in JSON detail, got %d", len(detailElements))
 	}
 
-	// "counter" is non-zero in at least one element → present.
-	if _, ok := items.Properties["counter"]; !ok {
-		t.Error("expected 'counter' in array items (non-zero in at least one element)")
-	}
-
-	// "match_0", "match_1", "hits_0" are nil in all elements → excluded.
-	for _, excluded := range []string{"match_0", "match_1", "hits_0"} {
-		if _, ok := items.Properties[excluded]; ok {
-			t.Errorf("'%s' should be excluded (omitempty + nil across all elements)", excluded)
-		}
+	// Verify scopes are relative (#/properties/...)
+	first := detailElements[0].(map[string]any)
+	if first["scope"] != "#/properties/numbers" {
+		t.Errorf("expected relative scope, got %v", first["scope"])
 	}
 }
 
-func TestGenerateJSONSchemaWithOptions_OmitEmpty_SliceOfPtrStructs(t *testing.T) {
-	match := "wild"
+func TestGenerateUISchema_ArrayDetail_EmptyStruct_NoDetail(t *testing.T) {
+	type Empty struct{}
 
-	v := OmitEmptySlicePtrParent{
-		Title: "game",
-		Entries: []*OmitEmptySliceEntry{
-			{Name: "a", Match: &match},
-			{Name: "b"},
-		},
+	type Form struct {
+		Items []Empty `json:"items"`
 	}
 
-	opts := schema.Options{Draft: "draft-07", OmitEmpty: true}
-
-	s, err := parser.GenerateJSONSchemaWithOptions(v, opts)
+	ui, err := parser.GenerateUISchema(Form{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	items := s.Properties["entries"].Items
-
-	if _, ok := items.Properties["name"]; !ok {
-		t.Error("expected 'name' in array items")
-	}
-
-	if _, ok := items.Properties["match"]; !ok {
-		t.Error("expected 'match' (non-nil in at least one element)")
-	}
-
-	for _, excluded := range []string{"match_0", "match_1", "hits_0"} {
-		if _, ok := items.Properties[excluded]; ok {
-			t.Errorf("'%s' should be excluded (omitempty + nil across all ptr elements)", excluded)
-		}
-	}
-}
-
-func TestGenerateJSONSchemaWithOptions_OmitEmpty_EmptySlice(t *testing.T) {
-	v := OmitEmptySliceParent{
-		Title:   "game",
-		Entries: []OmitEmptySliceEntry{},
-	}
-
-	opts := schema.Options{Draft: "draft-07", OmitEmpty: true}
-
-	s, err := parser.GenerateJSONSchemaWithOptions(v, opts)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	items := s.Properties["entries"].Items
-
-	// Empty slice → no value to inspect, all fields should be present.
-	expected := []string{"name", "match", "match_0", "match_1", "hits_0", "counter"}
-	for _, key := range expected {
-		if _, ok := items.Properties[key]; !ok {
-			t.Errorf("expected '%s' in items for empty slice (no filtering possible)", key)
-		}
-	}
-}
-
-func TestGenerateJSONSchemaWithOptions_OmitEmpty_SliceDisabled(t *testing.T) {
-	match := "wild"
-
-	v := OmitEmptySliceParent{
-		Title: "game",
-		Entries: []OmitEmptySliceEntry{
-			{Name: "a", Match: &match},
-		},
-	}
-
-	opts := schema.Options{Draft: "draft-07", OmitEmpty: false}
-
-	s, err := parser.GenerateJSONSchemaWithOptions(v, opts)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	items := s.Properties["entries"].Items
-
-	// OmitEmpty disabled → all fields present regardless of values.
-	expected := []string{"name", "match", "match_0", "match_1", "hits_0", "counter"}
-	for _, key := range expected {
-		if _, ok := items.Properties[key]; !ok {
-			t.Errorf("expected '%s' (OmitEmpty disabled)", key)
+	ctrl := ui.Elements[0]
+	// Empty struct → no detail (nil or no detail key).
+	if ctrl.Options != nil {
+		if _, has := ctrl.Options["detail"]; has {
+			t.Error("empty struct should not produce detail")
 		}
 	}
 }

@@ -273,19 +273,57 @@ func buildUIElements(t reflect.Type, basePath string, parent *schema.UISchemaEle
 			continue
 		}
 
-		control := buildControl(scope, name, formOpts, tags, opts)
+		// Slice/array of structs → Control with options.detail containing
+		// the UI Schema for array items (JSON Forms convention).
+		if elemType, ok := sliceOfStructsElemType(fieldType); ok {
+			control := buildArrayControl(scope, name, formOpts, tags, opts, elemType)
+			parent.Elements = append(parent.Elements, control)
 
-		if formOpts.Layout == layoutHorizontal {
-			ensureOptions(control)
-			control.Options["layout"] = layoutHorizontal
-
-			if formOpts.LayoutGroup != "" {
-				control.Options["layoutGroup"] = formOpts.LayoutGroup
-			}
+			continue
 		}
+
+		control := buildControl(scope, name, formOpts, tags, opts)
+		applyLayoutOptions(control, formOpts)
 
 		parent.Elements = append(parent.Elements, control)
 	}
+}
+
+// sliceOfStructsElemType checks if the type is a slice/array whose element
+// type (after unwrapping pointers) is a struct (excluding time.Time).
+// Returns the underlying struct type and true, or zero and false.
+func sliceOfStructsElemType(t reflect.Type) (reflect.Type, bool) {
+	if t.Kind() != reflect.Slice && t.Kind() != reflect.Array {
+		return nil, false
+	}
+
+	elem := t.Elem()
+	if elem.Kind() == reflect.Ptr {
+		elem = elem.Elem()
+	}
+
+	if elem.Kind() == reflect.Struct && elem != timeType {
+		return elem, true
+	}
+
+	return nil, false
+}
+
+// buildArrayDetail builds a VerticalLayout with Controls for the fields of
+// an array item struct. The resulting element is intended for use as
+// options.detail in a JSON Forms array Control.
+func buildArrayDetail(elemType reflect.Type, opts *schema.Options) *schema.UISchemaElement {
+	detail := schema.NewVerticalLayout()
+	buildUIElements(elemType, "#/properties", detail, opts)
+
+	// Apply horizontal grouping inside the detail layout.
+	detail.Elements = groupHorizontalElements(detail.Elements)
+
+	if len(detail.Elements) == 0 {
+		return nil
+	}
+
+	return detail
 }
 
 // isFieldHidden determines whether a field should be excluded from the UI Schema.
@@ -303,6 +341,38 @@ func isFieldHidden(name string, formOpts schema.FormOptions, opts *schema.Option
 	}
 
 	return false
+}
+
+// applyLayoutOptions sets the internal layout and layoutGroup options on
+// a control element when a horizontal layout is requested.
+func applyLayoutOptions(control *schema.UISchemaElement, formOpts schema.FormOptions) {
+	if formOpts.Layout != layoutHorizontal {
+		return
+	}
+
+	ensureOptions(control)
+	control.Options["layout"] = layoutHorizontal
+
+	if formOpts.LayoutGroup != "" {
+		control.Options["layoutGroup"] = formOpts.LayoutGroup
+	}
+}
+
+// buildArrayControl creates a Control for a slice-of-structs field with
+// options.detail containing the UI Schema for the array items.
+func buildArrayControl(scope, name string, formOpts schema.FormOptions, tags schema.FieldTags,
+	opts *schema.Options, elemType reflect.Type) *schema.UISchemaElement {
+	control := buildControl(scope, name, formOpts, tags, opts)
+	detail := buildArrayDetail(elemType, opts)
+
+	if detail != nil {
+		ensureOptions(control)
+		control.Options["detail"] = detail
+	}
+
+	applyLayoutOptions(control, formOpts)
+
+	return control
 }
 
 // buildControl creates a fully configured Control UI Schema element.

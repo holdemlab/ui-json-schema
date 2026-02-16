@@ -49,6 +49,7 @@
    - [Правила на Category](#правила-на-category)
    - [i18n на Category](#i18n-на-category)
    - [Правила на Group](#правила-на-group-вкладені-структури)
+   - [Detail масиву (slice структур)](#detail-масиву-slice-структур)
    - [JSON Schema Draft 2019-09](#json-schema-draft-2019-09)
    - [OmitEmpty — фільтрація порожніх полів](#omitempty--фільтрація-порожніх-полів)
    - [OpenAPI 3.x → JSON Forms](#openapi-3x--json-forms)
@@ -528,6 +529,7 @@ func GenerateUISchemaWithOptions(v any, opts schema.Options) (*schema.UISchemaEl
    - `form:"hidden"` або `AccessHidden` → поле виключається.
    - `AccessReadOnly` → `options.readonly = true`.
    - Вкладені структури → `Group` з назвою поля як мітка. Якщо поле-структура має `form:"category=..."`, Group потрапляє у відповідну категорію.
+   - Поля типу `[]struct` або `[]*struct` → `Control` з `options.detail`, що містить `VerticalLayout` з контролами полів елемента масиву. Scope всередині detail відносний до елемента: `#/properties/fieldName`. Примітивні слайси (`[]string`, `[]int` тощо) залишаються звичайними `Control` без `options.detail`.
    - Категорії → автоматична обгортка в `Categorization` → `Category`.
    - Правила застосовуються за пріоритетом: `visibleIf` → `hideIf` → `enableIf` → `disableIf`.
    - Правила на Group: теги `visibleIf`/`hideIf`/`enableIf`/`disableIf` на полі-структурі застосовуються до відповідного `Group`.
@@ -1433,6 +1435,61 @@ ui, _ := parser.GenerateUISchema(Order{})
       "schema": { "const": true }
     }
   }
+}
+```
+
+---
+
+### Detail масиву (slice структур)
+
+Коли поле має тип `[]SomeStruct` або `[]*SomeStruct`, генератор UI Schema створює `Control` з `options.detail`, що містить `VerticalLayout` з контролами для полів структури-елемента масиву. Це відповідає конвенції JSON Forms для array-контролів.
+
+- Scope кожного контрола всередині `options.detail` відносний до елемента масиву: `#/properties/fieldName`
+- Всі існуючі можливості працюють всередині detail: labels, readonly, multiline, rules, horizontal layout, вкладені структури (Groups)
+- Примітивні слайси (`[]string`, `[]int` тощо) залишаються без змін — звичайні `Control` без `options.detail`
+- Порожні структури не генерують detail
+- Горизонтальне групування (`groupHorizontalElements`) також підтримується всередині array items
+
+```go
+type WinningSet struct {
+    Numbers int    `json:"numbers"`
+    Bonus   int    `json:"bonus"`
+    Label   string `json:"label" form:"label=Set Label"`
+}
+
+type GameConfig struct {
+    GameName    string       `json:"game_name" form:"label=Game name"`
+    WinningSets []WinningSet `json:"winning_sets" form:"label=Winning Sets"`
+}
+```
+
+**UI Schema:**
+
+```json
+{
+  "type": "VerticalLayout",
+  "elements": [
+    {
+      "type": "Control",
+      "label": "Game name",
+      "scope": "#/properties/game_name"
+    },
+    {
+      "type": "Control",
+      "label": "Winning Sets",
+      "scope": "#/properties/winning_sets",
+      "options": {
+        "detail": {
+          "type": "VerticalLayout",
+          "elements": [
+            { "type": "Control", "scope": "#/properties/numbers" },
+            { "type": "Control", "scope": "#/properties/bonus" },
+            { "type": "Control", "label": "Set Label", "scope": "#/properties/label" }
+          ]
+        }
+      }
+    }
+  ]
 }
 ```
 
