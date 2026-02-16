@@ -1301,6 +1301,305 @@ func TestGenerateUISchema_NamedLayoutGroup_JSON(t *testing.T) {
 	}
 }
 
+// --- Array Detail (slice of structs) ---
+
+type ArrayDetailItem struct {
+	Numbers int    `json:"numbers"`
+	Bonus   int    `json:"bonus"`
+	Label   string `json:"label" form:"label=Set Label"`
+}
+
+func TestGenerateUISchema_ArrayDetail_SliceOfStructs(t *testing.T) {
+	type Form struct {
+		Name  string            `json:"name"`
+		Items []ArrayDetailItem `json:"items" form:"label=Items"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(ui.Elements) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(ui.Elements))
+	}
+
+	ctrl := ui.Elements[1]
+	if ctrl.Type != "Control" {
+		t.Fatalf("expected Control, got %q", ctrl.Type)
+	}
+
+	if ctrl.Scope != "#/properties/items" {
+		t.Errorf("expected scope #/properties/items, got %q", ctrl.Scope)
+	}
+
+	if ctrl.Label != "Items" {
+		t.Errorf("expected label 'Items', got %q", ctrl.Label)
+	}
+
+	if ctrl.Options == nil {
+		t.Fatal("expected options with detail")
+	}
+
+	detail, ok := ctrl.Options["detail"].(*schema.UISchemaElement)
+	if !ok {
+		t.Fatalf("expected detail to be *UISchemaElement, got %T", ctrl.Options["detail"])
+	}
+
+	if detail.Type != "VerticalLayout" {
+		t.Errorf("expected VerticalLayout in detail, got %q", detail.Type)
+	}
+
+	if len(detail.Elements) != 3 {
+		t.Fatalf("expected 3 elements in detail, got %d", len(detail.Elements))
+	}
+
+	if detail.Elements[0].Scope != "#/properties/numbers" {
+		t.Errorf("expected #/properties/numbers, got %q", detail.Elements[0].Scope)
+	}
+
+	if detail.Elements[2].Label != "Set Label" {
+		t.Errorf("expected label 'Set Label', got %q", detail.Elements[2].Label)
+	}
+}
+
+func TestGenerateUISchema_ArrayDetail_SliceOfPtrStructs(t *testing.T) {
+	type Form struct {
+		Items []*ArrayDetailItem `json:"items"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ctrl := ui.Elements[0]
+	if ctrl.Options == nil {
+		t.Fatal("expected options with detail")
+	}
+
+	detail, ok := ctrl.Options["detail"].(*schema.UISchemaElement)
+	if !ok {
+		t.Fatalf("expected detail to be *UISchemaElement, got %T", ctrl.Options["detail"])
+	}
+
+	if len(detail.Elements) != 3 {
+		t.Errorf("expected 3 elements in detail, got %d", len(detail.Elements))
+	}
+}
+
+func TestGenerateUISchema_ArrayDetail_PrimitiveSlice_NoDetail(t *testing.T) {
+	type Form struct {
+		Tags []string `json:"tags"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ctrl := ui.Elements[0]
+	if ctrl.Type != "Control" {
+		t.Errorf("expected Control, got %q", ctrl.Type)
+	}
+
+	// Primitive slices should NOT have options.detail.
+	if ctrl.Options != nil {
+		if _, has := ctrl.Options["detail"]; has {
+			t.Error("primitive slice should not have options.detail")
+		}
+	}
+}
+
+func TestGenerateUISchema_ArrayDetail_WithCategory(t *testing.T) {
+	type Form struct {
+		Name  string            `json:"name" form:"category=General"`
+		Items []ArrayDetailItem `json:"items" form:"label=Items;category=Data"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ui.Type != "Categorization" {
+		t.Fatalf("expected Categorization, got %q", ui.Type)
+	}
+
+	// Find Data category.
+	var dataCat *schema.UISchemaElement
+	for _, el := range ui.Elements {
+		if el.Label == "Data" {
+			dataCat = el
+			break
+		}
+	}
+
+	if dataCat == nil {
+		t.Fatal("Data category not found")
+	}
+
+	ctrl := dataCat.Elements[0]
+	if ctrl.Options == nil {
+		t.Fatal("expected options with detail in category")
+	}
+
+	if _, ok := ctrl.Options["detail"].(*schema.UISchemaElement); !ok {
+		t.Errorf("expected detail in category item")
+	}
+}
+
+func TestGenerateUISchema_ArrayDetail_HorizontalInDetail(t *testing.T) {
+	type DetailItem struct {
+		City    string `json:"city" form:"layout=horizontal"`
+		ZipCode string `json:"zip_code" form:"layout=horizontal"`
+		Note    string `json:"note"`
+	}
+
+	type Form struct {
+		Entries []DetailItem `json:"entries"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ctrl := ui.Elements[0]
+	detail, ok := ctrl.Options["detail"].(*schema.UISchemaElement)
+	if !ok {
+		t.Fatal("expected detail")
+	}
+
+	// Should be: HorizontalLayout(city, zip_code), Control(note)
+	if len(detail.Elements) != 2 {
+		t.Fatalf("expected 2 elements in detail (HL + Control), got %d", len(detail.Elements))
+	}
+
+	if detail.Elements[0].Type != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout in detail, got %q", detail.Elements[0].Type)
+	}
+
+	if len(detail.Elements[0].Elements) != 2 {
+		t.Errorf("expected 2 in HorizontalLayout, got %d", len(detail.Elements[0].Elements))
+	}
+}
+
+func TestGenerateUISchema_ArrayDetail_NestedStructInItem(t *testing.T) {
+	type Inner struct {
+		Street string `json:"street"`
+		City   string `json:"city"`
+	}
+
+	type Item struct {
+		Name    string `json:"name"`
+		Address Inner  `json:"address"`
+	}
+
+	type Form struct {
+		Items []Item `json:"items"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ctrl := ui.Elements[0]
+	detail, ok := ctrl.Options["detail"].(*schema.UISchemaElement)
+	if !ok {
+		t.Fatal("expected detail")
+	}
+
+	// Should be: Control(name), Group(Address)
+	if len(detail.Elements) != 2 {
+		t.Fatalf("expected 2 elements in detail, got %d", len(detail.Elements))
+	}
+
+	if detail.Elements[0].Type != "Control" {
+		t.Errorf("expected Control, got %q", detail.Elements[0].Type)
+	}
+
+	group := detail.Elements[1]
+	if group.Type != "Group" {
+		t.Errorf("expected Group, got %q", group.Type)
+	}
+
+	if len(group.Elements) != 2 {
+		t.Errorf("expected 2 elements in group, got %d", len(group.Elements))
+	}
+}
+
+func TestGenerateUISchema_ArrayDetail_JSON(t *testing.T) {
+	type Form struct {
+		Items []ArrayDetailItem `json:"items" form:"label=Items"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := json.MarshalIndent(ui, "", "  ")
+	if err != nil {
+		t.Fatalf("json marshal error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json unmarshal error: %v", err)
+	}
+
+	elements := parsed["elements"].([]any)
+	ctrl := elements[0].(map[string]any)
+
+	opts, ok := ctrl["options"].(map[string]any)
+	if !ok {
+		t.Fatal("expected options in JSON")
+	}
+
+	detail, ok := opts["detail"].(map[string]any)
+	if !ok {
+		t.Fatal("expected detail object in JSON")
+	}
+
+	if detail["type"] != "VerticalLayout" {
+		t.Errorf("expected VerticalLayout in JSON detail, got %v", detail["type"])
+	}
+
+	detailElements := detail["elements"].([]any)
+	if len(detailElements) != 3 {
+		t.Errorf("expected 3 elements in JSON detail, got %d", len(detailElements))
+	}
+
+	// Verify scopes are relative (#/properties/...)
+	first := detailElements[0].(map[string]any)
+	if first["scope"] != "#/properties/numbers" {
+		t.Errorf("expected relative scope, got %v", first["scope"])
+	}
+}
+
+func TestGenerateUISchema_ArrayDetail_EmptyStruct_NoDetail(t *testing.T) {
+	type Empty struct{}
+
+	type Form struct {
+		Items []Empty `json:"items"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ctrl := ui.Elements[0]
+	// Empty struct → no detail (nil or no detail key).
+	if ctrl.Options != nil {
+		if _, has := ctrl.Options["detail"]; has {
+			t.Error("empty struct should not produce detail")
+		}
+	}
+}
+
 // --- OmitEmpty ---
 
 type OmitEmptyStruct struct {

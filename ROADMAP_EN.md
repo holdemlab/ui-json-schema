@@ -288,6 +288,32 @@ Extending Rules and i18n from Control level to Category, Group, and other layout
 
 ---
 
+## Stage 13 — Array Detail (Slice of Structs) ✅
+
+Automatic UI Schema generation for array-of-structs fields (`[]Struct` / `[]*Struct`) via `options.detail`.
+
+- [x] Detect `[]struct` / `[]*struct` fields in `buildUIElements`
+- [x] Generate `options.detail` with `VerticalLayout` + Controls for item struct fields
+- [x] Scopes in detail are relative: `#/properties/<field>`
+- [x] All existing features work inside detail: labels, readonly, multiline, rules, horizontal layout, nested structs (Group)
+- [x] Primitive slices (`[]string`, `[]int`) remain unchanged — no detail
+- [x] Empty structs don't produce a detail
+- [x] Unit tests:
+  - `[]struct` and `[]*struct` → Control with `options.detail`
+  - Primitive slice → no detail
+  - Detail with Category
+  - HorizontalLayout inside detail
+  - Nested struct in array item
+  - JSON serialization
+  - Empty struct → no detail
+- [x] Lint: 0 issues
+
+**Files:** `parser/struct_parser.go`
+
+**Result:** Arrays of structs automatically get a UI Schema for their items via `options.detail`.
+
+---
+
 ## Summary Table
 
 | Stage | Name                           | Priority  | Dependency  |
@@ -305,3 +331,4 @@ Extending Rules and i18n from Control level to Category, Group, and other layout
 | 10    | HorizontalLayout               | 🔴 High   | Stage 3     |
 | 11    | Rules / i18n on Layouts        | 🟡 Medium | Stages 4,10 |
 | 12    | Named Layout Groups ✅          | 🟡 Medium | Stage 10    |
+| 13    | Array Detail ✅                  | 🔴 High   | Stage 3     |
