@@ -49,6 +49,7 @@
    - [Rules on Category](#rules-on-category)
    - [i18n on Category](#i18n-on-category)
    - [Rules on Group (Nested Structs)](#rules-on-group-nested-structs)
+   - [Array Detail (Slice of Structs)](#array-detail-slice-of-structs)
    - [JSON Schema Draft 2019-09](#json-schema-draft-2019-09)
    - [OmitEmpty — Empty Field Filtering](#omitempty--empty-field-filtering)
    - [OpenAPI 3.x → JSON Forms](#openapi-3x--json-forms)
@@ -528,6 +529,7 @@ Same as above, with the ability to specify options (i18n, renderers, permissions
    - `form:"hidden"` or `AccessHidden` → field is excluded.
    - `AccessReadOnly` → `options.readonly = true`.
    - Nested structs → `Group` with the field name as label. If the struct field has `form:"category=..."`, the Group is placed into the corresponding category.
+   - Fields of type `[]struct` or `[]*struct` → `Control` with `options.detail` containing a `VerticalLayout` with Controls for the array item's fields. Scopes inside detail are relative to the item: `#/properties/fieldName`. Primitive slices (`[]string`, `[]int`, etc.) remain plain Controls without `options.detail`.
    - Categories → automatic wrapping into `Categorization` → `Category`.
    - Rules are applied by priority: `visibleIf` → `hideIf` → `enableIf` → `disableIf`.
    - Group rules: `visibleIf`/`hideIf`/`enableIf`/`disableIf` tags on a struct field apply to the corresponding `Group`.
@@ -1433,6 +1435,61 @@ The "address" group will have a rule:
       "schema": { "const": true }
     }
   }
+}
+```
+
+---
+
+### Array Detail (Slice of Structs)
+
+When a field has type `[]SomeStruct` or `[]*SomeStruct`, the UI Schema generator produces a `Control` with `options.detail` containing a `VerticalLayout` with Controls for the item struct's fields. This follows the JSON Forms convention for array controls.
+
+- Scopes inside `options.detail` are relative to the array item: `#/properties/fieldName`
+- All existing features work inside detail: labels, readonly, multiline, rules, horizontal layout, nested structs (Groups)
+- Primitive slices (`[]string`, `[]int`, etc.) are unchanged — they remain plain Controls without `options.detail`
+- Empty structs don't produce a detail
+- Horizontal grouping (`groupHorizontalElements`) is also supported inside array items
+
+```go
+type WinningSet struct {
+    Numbers int    `json:"numbers"`
+    Bonus   int    `json:"bonus"`
+    Label   string `json:"label" form:"label=Set Label"`
+}
+
+type GameConfig struct {
+    GameName    string       `json:"game_name" form:"label=Game name"`
+    WinningSets []WinningSet `json:"winning_sets" form:"label=Winning Sets"`
+}
+```
+
+**UI Schema:**
+
+```json
+{
+  "type": "VerticalLayout",
+  "elements": [
+    {
+      "type": "Control",
+      "label": "Game name",
+      "scope": "#/properties/game_name"
+    },
+    {
+      "type": "Control",
+      "label": "Winning Sets",
+      "scope": "#/properties/winning_sets",
+      "options": {
+        "detail": {
+          "type": "VerticalLayout",
+          "elements": [
+            { "type": "Control", "scope": "#/properties/numbers" },
+            { "type": "Control", "scope": "#/properties/bonus" },
+            { "type": "Control", "label": "Set Label", "scope": "#/properties/label" }
+          ]
+        }
+      }
+    }
+  ]
 }
 ```
 
