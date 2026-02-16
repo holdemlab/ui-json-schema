@@ -412,6 +412,10 @@ func buildUIElements(t reflect.Type, val reflect.Value, basePath string, parent 
 		if formOpts.Layout == layoutHorizontal {
 			ensureOptions(control)
 			control.Options["layout"] = layoutHorizontal
+
+			if formOpts.LayoutGroup != "" {
+				control.Options["layoutGroup"] = formOpts.LayoutGroup
+			}
 		}
 
 		parent.Elements = append(parent.Elements, control)
@@ -558,28 +562,70 @@ func isHorizontalElement(el *schema.UISchemaElement) bool {
 	return ok && v == layoutHorizontal
 }
 
-// consumeLayoutOption removes the internal "layout" option from an element
-// after it has been consumed by the grouping logic.
+// layoutGroupName returns the named group for a horizontal element, or "".
+func layoutGroupName(el *schema.UISchemaElement) string {
+	if el.Options == nil {
+		return ""
+	}
+
+	g, ok := el.Options["layoutGroup"].(string)
+	if !ok {
+		return ""
+	}
+
+	return g
+}
+
+// consumeLayoutOption removes the internal "layout" and "layoutGroup"
+// options from an element after it has been consumed by the grouping logic.
 func consumeLayoutOption(el *schema.UISchemaElement) {
 	if el.Options == nil {
 		return
 	}
 
 	delete(el.Options, "layout")
+	delete(el.Options, "layoutGroup")
 
 	if len(el.Options) == 0 {
 		el.Options = nil
 	}
 }
 
-// groupHorizontalElements groups consecutive elements marked with
-// layout=horizontal into HorizontalLayout containers. A single
-// horizontal element is kept as a plain Control.
+// groupHorizontalElements groups elements marked with layout=horizontal
+// into HorizontalLayout containers.
+//
+// Unnamed horizontal elements (no layoutGroup) are grouped when consecutive.
+// Named horizontal elements (layoutGroup set) are collected across all
+// positions and placed into a single HorizontalLayout at the position of
+// the first element in that group. A single horizontal element (named or
+// unnamed) is kept as a plain Control.
 func groupHorizontalElements(elements []*schema.UISchemaElement) []*schema.UISchemaElement {
-	var result []*schema.UISchemaElement
-	var pendingH []*schema.UISchemaElement
+	// First pass: collect named groups preserving insertion order
+	// and record which group each element belongs to (by pointer).
+	namedGroups := make(map[string][]*schema.UISchemaElement)
+	memberGroup := make(map[*schema.UISchemaElement]string)
 
-	flush := func() {
+	for _, el := range elements {
+		if !isHorizontalElement(el) {
+			continue
+		}
+
+		g := layoutGroupName(el)
+		if g == "" {
+			continue
+		}
+
+		namedGroups[g] = append(namedGroups[g], el)
+		memberGroup[el] = g
+	}
+
+	// Second pass: build result, handling unnamed consecutive groups
+	// and emitting named groups at first-occurrence position.
+	var result []*schema.UISchemaElement
+	var pendingH []*schema.UISchemaElement // unnamed consecutive buffer
+	emittedGroups := make(map[string]bool)
+
+	flushUnnamed := func() {
 		if len(pendingH) == 0 {
 			return
 		}
@@ -599,16 +645,43 @@ func groupHorizontalElements(elements []*schema.UISchemaElement) []*schema.UISch
 		pendingH = nil
 	}
 
+	emitNamedGroup := func(groupName string) {
+		members := namedGroups[groupName]
+
+		for _, el := range members {
+			consumeLayoutOption(el)
+		}
+
+		if len(members) == 1 {
+			result = append(result, members[0])
+		} else {
+			hl := schema.NewHorizontalLayout()
+			hl.Elements = append(hl.Elements, members...)
+			result = append(result, hl)
+		}
+
+		emittedGroups[groupName] = true
+	}
+
 	for _, el := range elements {
-		if isHorizontalElement(el) {
+		if g, ok := memberGroup[el]; ok {
+			// Named group member: emit entire group at first occurrence,
+			// skip subsequent members (already collected in pass 1).
+			flushUnnamed()
+
+			if !emittedGroups[g] {
+				emitNamedGroup(g)
+			}
+		} else if isHorizontalElement(el) {
+			// Unnamed: consecutive grouping.
 			pendingH = append(pendingH, el)
 		} else {
-			flush()
+			flushUnnamed()
 			result = append(result, el)
 		}
 	}
 
-	flush()
+	flushUnnamed()
 
 	return result
 }

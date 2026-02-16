@@ -966,6 +966,341 @@ func TestGenerateUISchema_HorizontalLayout_JSON(t *testing.T) {
 	}
 }
 
+// --- Named Layout Groups ---
+
+func TestGenerateUISchema_NamedLayoutGroup_NonAdjacent(t *testing.T) {
+	type Form struct {
+		City    string `json:"city" form:"layout=horizontal:addr"`
+		Email   string `json:"email"`
+		ZipCode string `json:"zip_code" form:"layout=horizontal:addr"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should be: HorizontalLayout(city, zip_code), Control(email)
+	if len(ui.Elements) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(ui.Elements))
+	}
+
+	hl := ui.Elements[0]
+	if hl.Type != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout, got %q", hl.Type)
+	}
+
+	if len(hl.Elements) != 2 {
+		t.Fatalf("expected 2 elements in HorizontalLayout, got %d", len(hl.Elements))
+	}
+
+	if hl.Elements[0].Scope != "#/properties/city" {
+		t.Errorf("expected city scope, got %q", hl.Elements[0].Scope)
+	}
+
+	if hl.Elements[1].Scope != "#/properties/zip_code" {
+		t.Errorf("expected zip_code scope, got %q", hl.Elements[1].Scope)
+	}
+
+	// email should be a plain control
+	if ui.Elements[1].Type != "Control" {
+		t.Errorf("expected Control, got %q", ui.Elements[1].Type)
+	}
+}
+
+func TestGenerateUISchema_NamedLayoutGroup_DifferentGroups(t *testing.T) {
+	type Form struct {
+		City    string `json:"city" form:"layout=horizontal:addr"`
+		Phone   string `json:"phone" form:"layout=horizontal:contact"`
+		ZipCode string `json:"zip_code" form:"layout=horizontal:addr"`
+		Fax     string `json:"fax" form:"layout=horizontal:contact"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should be: HorizontalLayout(city, zip_code), HorizontalLayout(phone, fax)
+	if len(ui.Elements) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(ui.Elements))
+	}
+
+	addr := ui.Elements[0]
+	if addr.Type != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout for addr, got %q", addr.Type)
+	}
+
+	if len(addr.Elements) != 2 {
+		t.Fatalf("expected 2 in addr group, got %d", len(addr.Elements))
+	}
+
+	if addr.Elements[0].Scope != "#/properties/city" {
+		t.Errorf("expected city, got %q", addr.Elements[0].Scope)
+	}
+
+	contact := ui.Elements[1]
+	if contact.Type != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout for contact, got %q", contact.Type)
+	}
+
+	if len(contact.Elements) != 2 {
+		t.Fatalf("expected 2 in contact group, got %d", len(contact.Elements))
+	}
+
+	if contact.Elements[0].Scope != "#/properties/phone" {
+		t.Errorf("expected phone, got %q", contact.Elements[0].Scope)
+	}
+
+	if contact.Elements[1].Scope != "#/properties/fax" {
+		t.Errorf("expected fax, got %q", contact.Elements[1].Scope)
+	}
+}
+
+func TestGenerateUISchema_NamedLayoutGroup_UnnamedCompatibility(t *testing.T) {
+	// Unnamed layout=horizontal should still group consecutively.
+	ui, err := parser.GenerateUISchema(HorizontalPair{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(ui.Elements) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(ui.Elements))
+	}
+
+	if ui.Elements[0].Type != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout, got %q", ui.Elements[0].Type)
+	}
+
+	if len(ui.Elements[0].Elements) != 2 {
+		t.Errorf("expected 2 in HorizontalLayout, got %d", len(ui.Elements[0].Elements))
+	}
+}
+
+func TestGenerateUISchema_NamedLayoutGroup_SingleElement(t *testing.T) {
+	type Form struct {
+		City  string `json:"city" form:"layout=horizontal:addr"`
+		Email string `json:"email"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Single named element should not create HorizontalLayout.
+	if len(ui.Elements) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(ui.Elements))
+	}
+
+	if ui.Elements[0].Type != "Control" {
+		t.Errorf("expected Control for single named, got %q", ui.Elements[0].Type)
+	}
+}
+
+func TestGenerateUISchema_NamedLayoutGroup_WithCategory(t *testing.T) {
+	type Form struct {
+		Name    string `json:"name" form:"category=General"`
+		City    string `json:"city" form:"category=General;layout=horizontal:addr"`
+		Email   string `json:"email" form:"category=General"`
+		ZipCode string `json:"zip_code" form:"category=General;layout=horizontal:addr"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ui.Type != "Categorization" {
+		t.Fatalf("expected Categorization, got %q", ui.Type)
+	}
+
+	general := ui.Elements[0]
+	// Should be: Control(name), HorizontalLayout(city, zip_code), Control(email)
+	if len(general.Elements) != 3 {
+		t.Fatalf("expected 3 elements in General, got %d", len(general.Elements))
+	}
+
+	if general.Elements[0].Type != "Control" {
+		t.Errorf("expected Control first, got %q", general.Elements[0].Type)
+	}
+
+	hl := general.Elements[1]
+	if hl.Type != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout, got %q", hl.Type)
+	}
+
+	if len(hl.Elements) != 2 {
+		t.Errorf("expected 2 in HorizontalLayout, got %d", len(hl.Elements))
+	}
+
+	if general.Elements[2].Type != "Control" {
+		t.Errorf("expected Control last, got %q", general.Elements[2].Type)
+	}
+}
+
+func TestGenerateUISchema_NamedLayoutGroup_InNestedGroup(t *testing.T) {
+	type Inner struct {
+		Street  string `json:"street" form:"layout=horizontal:loc"`
+		Number  int    `json:"number"`
+		ZipCode string `json:"zip_code" form:"layout=horizontal:loc"`
+	}
+
+	type Form struct {
+		Name    string `json:"name"`
+		Address Inner  `json:"address"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	group := ui.Elements[1]
+	if group.Type != "Group" {
+		t.Fatalf("expected Group, got %q", group.Type)
+	}
+
+	// Inside group: HorizontalLayout(street, zip_code), Control(number)
+	if len(group.Elements) != 2 {
+		t.Fatalf("expected 2 elements in group, got %d", len(group.Elements))
+	}
+
+	hl := group.Elements[0]
+	if hl.Type != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout in group, got %q", hl.Type)
+	}
+
+	if len(hl.Elements) != 2 {
+		t.Errorf("expected 2 in HorizontalLayout, got %d", len(hl.Elements))
+	}
+}
+
+func TestGenerateUISchema_NamedLayoutGroup_MixedNamedUnnamed(t *testing.T) {
+	type Form struct {
+		A string `json:"a" form:"layout=horizontal:grp"`
+		B string `json:"b" form:"layout=horizontal"`
+		C string `json:"c" form:"layout=horizontal"`
+		D string `json:"d" form:"layout=horizontal:grp"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Expected: HorizontalLayout(a, d), HorizontalLayout(b, c)
+	if len(ui.Elements) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(ui.Elements))
+	}
+
+	grp := ui.Elements[0]
+	if grp.Type != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout for named group, got %q", grp.Type)
+	}
+
+	if len(grp.Elements) != 2 {
+		t.Fatalf("expected 2 in named group, got %d", len(grp.Elements))
+	}
+
+	if grp.Elements[0].Scope != "#/properties/a" {
+		t.Errorf("expected a, got %q", grp.Elements[0].Scope)
+	}
+
+	if grp.Elements[1].Scope != "#/properties/d" {
+		t.Errorf("expected d, got %q", grp.Elements[1].Scope)
+	}
+
+	unnamed := ui.Elements[1]
+	if unnamed.Type != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout for unnamed, got %q", unnamed.Type)
+	}
+
+	if len(unnamed.Elements) != 2 {
+		t.Fatalf("expected 2 in unnamed group, got %d", len(unnamed.Elements))
+	}
+}
+
+func TestGenerateUISchema_NamedLayoutGroup_OptionsCleanup(t *testing.T) {
+	type Form struct {
+		City    string `json:"city" form:"layout=horizontal:addr"`
+		ZipCode string `json:"zip_code" form:"layout=horizontal:addr"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	hl := ui.Elements[0]
+	if hl.Type != "HorizontalLayout" {
+		t.Fatalf("expected HorizontalLayout, got %q", hl.Type)
+	}
+
+	// layout and layoutGroup options should be consumed.
+	for _, el := range hl.Elements {
+		if el.Options != nil {
+			if _, has := el.Options["layout"]; has {
+				t.Error("layout option should be consumed")
+			}
+
+			if _, has := el.Options["layoutGroup"]; has {
+				t.Error("layoutGroup option should be consumed")
+			}
+		}
+	}
+}
+
+func TestGenerateUISchema_NamedLayoutGroup_JSON(t *testing.T) {
+	type Form struct {
+		City    string `json:"city" form:"layout=horizontal:addr"`
+		Email   string `json:"email"`
+		ZipCode string `json:"zip_code" form:"layout=horizontal:addr"`
+	}
+
+	ui, err := parser.GenerateUISchema(Form{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := json.MarshalIndent(ui, "", "  ")
+	if err != nil {
+		t.Fatalf("json marshal error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("json unmarshal error: %v", err)
+	}
+
+	elements := parsed["elements"].([]any)
+	hl := elements[0].(map[string]any)
+
+	if hl["type"] != "HorizontalLayout" {
+		t.Errorf("expected HorizontalLayout in JSON, got %v", hl["type"])
+	}
+
+	hlElements := hl["elements"].([]any)
+	if len(hlElements) != 2 {
+		t.Errorf("expected 2 in HorizontalLayout, got %d", len(hlElements))
+	}
+
+	// Verify no layout/layoutGroup options leak into JSON.
+	for _, raw := range hlElements {
+		ctrl := raw.(map[string]any)
+		if opts, ok := ctrl["options"]; ok {
+			optsMap := opts.(map[string]any)
+			if _, has := optsMap["layout"]; has {
+				t.Error("layout should not appear in JSON")
+			}
+
+			if _, has := optsMap["layoutGroup"]; has {
+				t.Error("layoutGroup should not appear in JSON")
+			}
+		}
+	}
+}
+
 // --- OmitEmpty ---
 
 type OmitEmptyStruct struct {
