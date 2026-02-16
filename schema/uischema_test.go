@@ -366,6 +366,40 @@ func TestParseFormTag_Layout(t *testing.T) {
 	if opts.Layout != "horizontal" {
 		t.Errorf("expected layout 'horizontal', got %q", opts.Layout)
 	}
+
+	if opts.LayoutGroup != "" {
+		t.Errorf("expected empty layoutGroup, got %q", opts.LayoutGroup)
+	}
+}
+
+func TestParseFormTag_LayoutNamedGroup(t *testing.T) {
+	opts := schema.ParseFormTag("layout=horizontal:address")
+	if opts.Layout != "horizontal" {
+		t.Errorf("expected layout 'horizontal', got %q", opts.Layout)
+	}
+
+	if opts.LayoutGroup != "address" {
+		t.Errorf("expected layoutGroup 'address', got %q", opts.LayoutGroup)
+	}
+}
+
+func TestParseFormTag_LayoutNamedGroupWithOther(t *testing.T) {
+	opts := schema.ParseFormTag("label=City;layout=horizontal:addr;category=General")
+	if opts.Layout != "horizontal" {
+		t.Errorf("expected layout 'horizontal', got %q", opts.Layout)
+	}
+
+	if opts.LayoutGroup != "addr" {
+		t.Errorf("expected layoutGroup 'addr', got %q", opts.LayoutGroup)
+	}
+
+	if opts.Label != "City" {
+		t.Errorf("expected label 'City', got %q", opts.Label)
+	}
+
+	if opts.Category != "General" {
+		t.Errorf("expected category 'General', got %q", opts.Category)
+	}
 }
 
 func TestParseFormTag_CategoryWithOtherOptions(t *testing.T) {

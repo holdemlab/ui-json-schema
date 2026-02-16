@@ -100,6 +100,10 @@ type FormOptions struct {
 	Category string
 	// Layout overrides the default VerticalLayout. Supported: "horizontal".
 	Layout string
+	// LayoutGroup is an optional named group for layout grouping.
+	// Non-adjacent fields with the same LayoutGroup are combined into a single layout container.
+	// Format in form tag: layout=horizontal:groupName
+	LayoutGroup string
 	// VisibleIf holds a SHOW rule expression for the parent layout (Category/Group).
 	// Format: "field:value" (colon-separated because '=' is used by the form tag syntax).
 	VisibleIf string
@@ -148,7 +152,7 @@ func ParseFormTag(tag string) FormOptions {
 			}
 		case "layout":
 			if hasValue {
-				opts.Layout = strings.TrimSpace(value)
+				parseFormLayoutPart(strings.TrimSpace(value), &opts)
 			}
 		case "i18n":
 			if hasValue {
@@ -160,6 +164,17 @@ func ParseFormTag(tag string) FormOptions {
 	}
 
 	return opts
+}
+
+// parseFormLayoutPart parses the layout value which may contain
+// a named group: "horizontal:groupName".
+func parseFormLayoutPart(layoutVal string, opts *FormOptions) {
+	if base, group, hasGroup := strings.Cut(layoutVal, ":"); hasGroup {
+		opts.Layout = strings.TrimSpace(base)
+		opts.LayoutGroup = strings.TrimSpace(group)
+	} else {
+		opts.Layout = layoutVal
+	}
 }
 
 // parseFormRulePart handles rule-related keys inside a form tag
