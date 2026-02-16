@@ -268,6 +268,26 @@ Extending Rules and i18n from Control level to Category, Group, and other layout
 
 ---
 
+## Stage 12 — Named Layout Groups ✅
+
+- [x] Support named layout groups via `form:"layout=horizontal:groupName"`:
+  - Non-adjacent fields with the same group name are combined into a single `HorizontalLayout`
+  - Allows flexible layout composition without adding nested structs
+- [x] Parse `layout=horizontal:name` in `ParseFormTag` → store group name in `FormOptions`
+- [x] Update `groupHorizontalElements` to support named groups
+- [x] Unit tests:
+  - Non-adjacent fields with the same group name → single HorizontalLayout
+  - Different group names → separate HorizontalLayouts
+  - Compatibility with unnamed `layout=horizontal` (no regression)
+  - Named groups inside Category and Group
+- [x] Lint: 0 issues
+
+**Files:** `schema/uischema.go`, `parser/struct_parser.go`
+
+**Result:** Flexible horizontal field grouping without the need for nested structs.
+
+---
+
 ## Summary Table
 
 | Stage | Name                           | Priority  | Dependency  |
@@ -284,3 +304,4 @@ Extending Rules and i18n from Control level to Category, Group, and other layout
 | 9     | Validation Constraints         | 🔴 High   | Stage 2     |
 | 10    | HorizontalLayout               | 🔴 High   | Stage 3     |
 | 11    | Rules / i18n on Layouts        | 🟡 Medium | Stages 4,10 |
+| 12    | Named Layout Groups ✅          | 🟡 Medium | Stage 10    |

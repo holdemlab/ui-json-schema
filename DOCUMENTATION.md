@@ -41,9 +41,11 @@
    - [Кастомні рендерери](#кастомні-рендерери)
    - [Ролі та дозволи](#ролі-та-дозволи)
    - [Категоризація (вкладки)](#категоризація-вкладки)
+   - [Вкладені структури в категоріях](#вкладені-структури-в-категоріях)
    - [Умовна видимість](#умовна-видимість)
    - [Обмеження валідації](#обмеження-валідації)
    - [HorizontalLayout](#horizontallayout)
+   - [Іменовані групи лейаутів (Named Layout Groups)](#іменовані-групи-лейаутів-named-layout-groups)
    - [Правила на Category](#правила-на-category)
    - [i18n на Category](#i18n-на-category)
    - [Правила на Group](#правила-на-group-вкладені-структури)
@@ -291,12 +293,18 @@ rule := schema.ParseFormRuleExpression("provideAddress:true", schema.EffectShow)
 
 ```go
 type FormOptions struct {
-    Label     string // Мітка контролу
-    Hidden    bool   // Приховати з UI
-    Readonly  bool   // Поле тільки для читання
-    Multiline bool   // Багаторядкове текстове поле
-    Category  string // Назва категорії (вкладки)
-    Layout    string // Переоприділення лейауту ("horizontal")
+    Label       string // Мітка контролу
+    Hidden      bool   // Приховати з UI
+    Readonly    bool   // Поле тільки для читання
+    Multiline   bool   // Багаторядкове текстове поле
+    Category    string // Назва категорії (вкладки)
+    Layout      string // Переоприділення лейауту ("horizontal")
+    LayoutGroup string // Іменована група для об'єднання несусідніх полів
+    VisibleIf   string // SHOW правило для Category/Group ("field:value")
+    HideIf      string // HIDE правило для Category/Group
+    EnableIf    string // ENABLE правило для Category/Group
+    DisableIf   string // DISABLE правило для Category/Group
+    I18nKey     string // i18n ключ для мітки Category
 }
 ```
 
@@ -318,6 +326,7 @@ form:"multiline"
 form:"category=Особисті дані"
 form:"label=Ім'я;readonly;category=Профіль"
 form:"layout=horizontal"
+form:"layout=horizontal:contact"
 form:"category=Адреса;visibleIf=provideAddress:true"
 form:"category=Особисте;i18n=category.personal"
 ```
@@ -518,13 +527,14 @@ func GenerateUISchemaWithOptions(v any, opts schema.Options) (*schema.UISchemaEl
 7. Для UI Schema:
    - `form:"hidden"` або `AccessHidden` → поле виключається.
    - `AccessReadOnly` → `options.readonly = true`.
-   - Вкладені структури → `Group` з назвою поля як мітка.
+   - Вкладені структури → `Group` з назвою поля як мітка. Якщо поле-структура має `form:"category=..."`, Group потрапляє у відповідну категорію.
    - Категорії → автоматична обгортка в `Categorization` → `Category`.
    - Правила застосовуються за пріоритетом: `visibleIf` → `hideIf` → `enableIf` → `disableIf`.
    - Правила на Group: теги `visibleIf`/`hideIf`/`enableIf`/`disableIf` на полі-структурі застосовуються до відповідного `Group`.
    - Правила на Category: директиви `visibleIf`/`hideIf`/`enableIf`/`disableIf` у тезі `form` застосовуються до `Category`.
    - i18n на Category: директива `i18n=key` у тезі `form` встановлює поле `i18n` та перекладає мітку через `Translator`.
    - `layout=horizontal`: сусідні поля з однаковим `layout=horizontal` групуються в `HorizontalLayout`.
+   - `layout=horizontal:groupName`: несусідні поля з однаковою іменованою групою об'єднуються в один `HorizontalLayout` на позиції першого входження. Одиночні елементи залишаються без обгортки.
 8. Обмеження валідації (`minLength`, `maxLength`, `minimum`, `maximum`, `pattern`, `description`) зі struct-тегів записуються у JSON Schema.
 
 ---
@@ -740,7 +750,8 @@ func (h *Handler) GenerateHandler(w http.ResponseWriter, r *http.Request)
 | `readonly` | Тільки для читання | `form:"readonly"` |
 | `multiline` | Багаторядкове поле | `form:"multiline"` |
 | `category=Назва` | Категорія (вкладка) | `form:"category=Особисті"` |
-| `layout=horizontal` | Переоприділення лейауту | `form:"layout=horizontal"` |
+| `layout=horizontal` | Переоприділення лейауту (сусідні поля) | `form:"layout=horizontal"` |
+| `layout=horizontal:groupName` | Іменована група лейауту (несусідні поля) | `form:"layout=horizontal:contact"` |
 | `visibleIf=field:value` | SHOW rule для Category | `form:"category=Адреса;visibleIf=provideAddress:true"` |
 | `hideIf=field:value` | HIDE rule для Category | `form:"category=Secret;hideIf=role:admin"` |
 | `enableIf=field:value` | ENABLE rule для Category | `form:"category=Settings;enableIf=active:true"` |
@@ -1105,6 +1116,61 @@ ui, _ := parser.GenerateUISchema(RegistrationForm{})
 
 ---
 
+### Вкладені структури в категоріях
+
+Якщо поле-структура має `form:"category=..."`, відповідний `Group` потрапляє у задану категорію, а не в "Other":
+
+```go
+type DrawSetup struct {
+    Numbers int `json:"numbers"`
+    Bonus   int `json:"bonus"`
+}
+
+type GameConfig struct {
+    GameName  string    `json:"game_name" form:"label=Game name;category=General"`
+    DrawSetup DrawSetup `json:"draw_setup" form:"label=Draw setup;category=General"`
+    Logic     string    `json:"logic" form:"label=Logic;category=Logic"`
+}
+
+ui, _ := parser.GenerateUISchema(GameConfig{})
+```
+
+Результат — `DrawSetup` відображається як `Group` всередині категорії "General":
+
+```json
+{
+  "type": "Categorization",
+  "elements": [
+    {
+      "type": "Category",
+      "label": "General",
+      "elements": [
+        { "type": "Control", "scope": "#/properties/game_name", "label": "Game name" },
+        {
+          "type": "Group",
+          "label": "Draw setup",
+          "elements": [
+            { "type": "Control", "scope": "#/properties/draw_setup/properties/numbers" },
+            { "type": "Control", "scope": "#/properties/draw_setup/properties/bonus" }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "Category",
+      "label": "Logic",
+      "elements": [
+        { "type": "Control", "scope": "#/properties/logic", "label": "Logic" }
+      ]
+    }
+  ]
+}
+```
+
+> **Примітка:** Без `form:"category=..."` на полі-структурі, `Group` потрапить в категорію "Other". Правила (`visibleIf`, `hideIf` тощо) та `i18n` в `form`-тезі також працюють для вкладених структур у категоріях.
+
+---
+
 ### Умовна видимість
 
 ```go
@@ -1211,6 +1277,55 @@ ui, _ := parser.GenerateUISchema(Address{})
   ]
 }
 ```
+
+---
+
+### Іменовані групи лейаутів (Named Layout Groups)
+
+Синтаксис `form:"layout=horizontal:groupName"` дозволяє об'єднувати **несусідні** поля з однаковою назвою групи в один `HorizontalLayout`. Поля групуються на позиції першого входження групи.
+
+Якщо іменована група містить лише один елемент, він залишається звичайним `Control` без обгортки в `HorizontalLayout`.
+
+Опції `layout` та `layoutGroup` видаляються з елементів після групування.
+
+```go
+type ContactForm struct {
+    FirstName  string `json:"first_name" form:"layout=horizontal:name"`
+    Email      string `json:"email" form:"layout=horizontal:contact"`
+    LastName   string `json:"last_name" form:"layout=horizontal:name"`
+    Phone      string `json:"phone" form:"layout=horizontal:contact"`
+    MiddleName string `json:"middle_name"`
+}
+
+ui, _ := parser.GenerateUISchema(ContactForm{})
+```
+
+Результат UI Schema — поля `first_name` і `last_name` (група `name`) та `email` і `phone` (група `contact`) об'єднані в `HorizontalLayout` на позиції першого входження кожної групи:
+
+```json
+{
+  "type": "VerticalLayout",
+  "elements": [
+    {
+      "type": "HorizontalLayout",
+      "elements": [
+        { "type": "Control", "scope": "#/properties/first_name" },
+        { "type": "Control", "scope": "#/properties/last_name" }
+      ]
+    },
+    {
+      "type": "HorizontalLayout",
+      "elements": [
+        { "type": "Control", "scope": "#/properties/email" },
+        { "type": "Control", "scope": "#/properties/phone" }
+      ]
+    },
+    { "type": "Control", "scope": "#/properties/middle_name" }
+  ]
+}
+```
+
+> **Примітка:** Безіменний `layout=horizontal` (без `:groupName`) працює як раніше — групує лише сусідні поля.
 
 ---
 
