@@ -286,3 +286,160 @@ func TestParseFieldTags_Renderer(t *testing.T) {
 		t.Errorf("expected Renderer 'color-picker', got %q", tags.Renderer)
 	}
 }
+
+// --- Validation Constraints ---
+
+func TestParseFieldTags_Description(t *testing.T) {
+	type s struct {
+		Name string `description:"Please enter your name"`
+	}
+
+	field, _ := reflect.TypeOf(s{}).FieldByName("Name")
+	tags := schema.ParseFieldTags(field)
+
+	if tags.Description != "Please enter your name" {
+		t.Errorf("expected description 'Please enter your name', got %q", tags.Description)
+	}
+}
+
+func TestParseFieldTags_MinLength(t *testing.T) {
+	type s struct {
+		Name string `minLength:"3"`
+	}
+
+	field, _ := reflect.TypeOf(s{}).FieldByName("Name")
+	tags := schema.ParseFieldTags(field)
+
+	if tags.MinLength == nil || *tags.MinLength != 3 {
+		t.Errorf("expected MinLength 3, got %v", tags.MinLength)
+	}
+}
+
+func TestParseFieldTags_MaxLength(t *testing.T) {
+	type s struct {
+		Code string `maxLength:"5"`
+	}
+
+	field, _ := reflect.TypeOf(s{}).FieldByName("Code")
+	tags := schema.ParseFieldTags(field)
+
+	if tags.MaxLength == nil || *tags.MaxLength != 5 {
+		t.Errorf("expected MaxLength 5, got %v", tags.MaxLength)
+	}
+}
+
+func TestParseFieldTags_Minimum(t *testing.T) {
+	type s struct {
+		Age int `minimum:"0"`
+	}
+
+	field, _ := reflect.TypeOf(s{}).FieldByName("Age")
+	tags := schema.ParseFieldTags(field)
+
+	if tags.Minimum == nil || *tags.Minimum != 0 {
+		t.Errorf("expected Minimum 0, got %v", tags.Minimum)
+	}
+}
+
+func TestParseFieldTags_MinimumFloat(t *testing.T) {
+	type s struct {
+		Price float64 `minimum:"0.5"`
+	}
+
+	field, _ := reflect.TypeOf(s{}).FieldByName("Price")
+	tags := schema.ParseFieldTags(field)
+
+	if tags.Minimum == nil || *tags.Minimum != 0.5 {
+		t.Errorf("expected Minimum 0.5, got %v", tags.Minimum)
+	}
+}
+
+func TestParseFieldTags_Maximum(t *testing.T) {
+	type s struct {
+		Score int `maximum:"999"`
+	}
+
+	field, _ := reflect.TypeOf(s{}).FieldByName("Score")
+	tags := schema.ParseFieldTags(field)
+
+	if tags.Maximum == nil || *tags.Maximum != 999 {
+		t.Errorf("expected Maximum 999, got %v", tags.Maximum)
+	}
+}
+
+func TestParseFieldTags_MaximumFloat(t *testing.T) {
+	type s struct {
+		Rate float64 `maximum:"99.9"`
+	}
+
+	field, _ := reflect.TypeOf(s{}).FieldByName("Rate")
+	tags := schema.ParseFieldTags(field)
+
+	if tags.Maximum == nil || *tags.Maximum != 99.9 {
+		t.Errorf("expected Maximum 99.9, got %v", tags.Maximum)
+	}
+}
+
+func TestParseFieldTags_Pattern(t *testing.T) {
+	type s struct {
+		Code string `pattern:"^[A-Z]{2}$"`
+	}
+
+	field, _ := reflect.TypeOf(s{}).FieldByName("Code")
+	tags := schema.ParseFieldTags(field)
+
+	if tags.Pattern != "^[A-Z]{2}$" {
+		t.Errorf("expected Pattern '^[A-Z]{2}$', got %q", tags.Pattern)
+	}
+}
+
+func TestParseFieldTags_InvalidMinLength(t *testing.T) {
+	type s struct {
+		Name string `minLength:"abc"`
+	}
+
+	field, _ := reflect.TypeOf(s{}).FieldByName("Name")
+	tags := schema.ParseFieldTags(field)
+
+	if tags.MinLength != nil {
+		t.Errorf("expected MinLength nil for invalid value, got %v", tags.MinLength)
+	}
+}
+
+func TestParseFieldTags_InvalidMinimum(t *testing.T) {
+	type s struct {
+		Age int `minimum:"not-a-number"`
+	}
+
+	field, _ := reflect.TypeOf(s{}).FieldByName("Age")
+	tags := schema.ParseFieldTags(field)
+
+	if tags.Minimum != nil {
+		t.Errorf("expected Minimum nil for invalid value, got %v", tags.Minimum)
+	}
+}
+
+func TestParseFieldTags_ValidationCombined(t *testing.T) {
+	type s struct {
+		Name string `minLength:"3" maxLength:"50" pattern:"^[a-zA-Z]+$" description:"Your full name"`
+	}
+
+	field, _ := reflect.TypeOf(s{}).FieldByName("Name")
+	tags := schema.ParseFieldTags(field)
+
+	if tags.MinLength == nil || *tags.MinLength != 3 {
+		t.Errorf("expected MinLength 3, got %v", tags.MinLength)
+	}
+
+	if tags.MaxLength == nil || *tags.MaxLength != 50 {
+		t.Errorf("expected MaxLength 50, got %v", tags.MaxLength)
+	}
+
+	if tags.Pattern != "^[a-zA-Z]+$" {
+		t.Errorf("expected Pattern '^[a-zA-Z]+$', got %q", tags.Pattern)
+	}
+
+	if tags.Description != "Your full name" {
+		t.Errorf("expected Description 'Your full name', got %q", tags.Description)
+	}
+}
