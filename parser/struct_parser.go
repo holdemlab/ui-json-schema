@@ -112,7 +112,6 @@ func applyTags(prop *schema.JSONSchema, tags schema.FieldTags) {
 	}
 }
 
-
 // fieldJSONName returns the JSON field name from the json struct tag.
 // Falls back to the Go field name if no tag is present.
 func fieldJSONName(field reflect.StructField) string {
